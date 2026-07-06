@@ -1,0 +1,151 @@
+import { Theme } from "theme.slint";
+
+export struct DayCellData {
+    date: string,
+    solar-day: int,
+    lunar-text: string,
+    lunar-kind: string, // "festival" | "jieqi" | "solar" | "day" | "hidden"
+    is-current-month: bool,
+    is-visible: bool,
+    is-today: bool,
+    is-selected: bool,
+    is-weekend: bool,
+    workday-tag: string, // "" | "休" | "班"
+}
+
+export struct WeekdayLabel {
+    text: string,
+    weekend: bool,
+}
+
+export component DayCellView inherits Rectangle {
+    in property <DayCellData> cell;
+    callback pressed;
+
+    visible: cell.is-visible;
+
+    ta := TouchArea {
+        clicked => { root.pressed(); }
+    }
+
+    bg := Rectangle {
+        x: 2px;
+        y: 2px;
+        width: parent.width - 4px;
+        height: parent.height - 4px;
+        border-radius: Theme.radius-cell;
+        background: cell.is-today ? Theme.cinnabar
+            : cell.is-selected ? Theme.cinnabar-soft
+            : ta.has-hover ? Theme.cinnabar-hover-faint
+            : transparent;
+        animate background { duration: 120ms; easing: ease; }
+    }
+
+    VerticalLayout {
+        alignment: center;
+        spacing: 2px;
+        Text {
+            text: cell.solar-day;
+            font-size: 13px;
+            font-weight: 600;
+            horizontal-alignment: center;
+            color: cell.is-today ? Theme.paper-bg
+                : cell.is-weekend ? Theme.weekend
+                : !cell.is-current-month ? Theme.outside-gray
+                : Theme.ink;
+        }
+        if cell.lunar-text != "" : Text {
+            text: cell.lunar-text;
+            font-size: 8.5px;
+            horizontal-alignment: center;
+            overflow: elide;
+            font-weight: cell.lunar-kind == "festival" ? 600 : 500;
+            color: cell.is-today ? Theme.paper-bg
+                : !cell.is-current-month ? Theme.outside-gray
+                : cell.lunar-kind == "festival" ? Theme.cinnabar
+                : cell.lunar-kind == "jieqi" ? Theme.sage
+                : cell.lunar-kind == "solar" ? Theme.solar-blue
+                : Theme.lunar-ink;
+        }
+    }
+
+    if cell.workday-tag != "" : Rectangle {
+        x: parent.width - 4px - 13px;
+        y: 2px;
+        width: 13px;
+        height: 13px;
+        border-radius: 6.5px;
+        background: cell.workday-tag == "班" ? Theme.cinnabar : Theme.sage;
+        Text {
+            width: 100%;
+            height: 100%;
+            text: cell.workday-tag;
+            font-size: 8px;
+            font-weight: 700;
+            color: white;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+}
+
+export component PinButton inherits Rectangle {
+    in property <bool> pinned;
+    in property <bool> hero-hover;
+    callback clicked;
+
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+    background: ta.has-hover
+        ? (pinned ? Theme.cinnabar-hover-soft : Theme.ink-hover-faint)
+        : transparent;
+    opacity: ta.has-hover ? 1.0
+        : pinned ? (hero-hover ? 0.85 : 0.72)
+        : (hero-hover ? 0.5 : 0.28);
+    animate opacity, background { duration: 150ms; easing: ease; }
+
+    ta := TouchArea {
+        clicked => { root.clicked(); }
+        mouse-cursor: pointer;
+    }
+
+    Path {
+        width: 13px;
+        height: 13px;
+        viewbox-width: 16;
+        viewbox-height: 16;
+        commands: "M 8 13.25 L 8 8.5 M 5.75 2.75 L 10.25 2.75 L 11.75 6.5 L 4.25 6.5 Z";
+        stroke: pinned ? Theme.cinnabar : Theme.ink-secondary;
+        stroke-width: 1px;
+        fill: pinned ? Theme.cinnabar : transparent;
+    }
+}
+
+export component TodayButton inherits Rectangle {
+    callback clicked;
+
+    width: 34px;
+    height: 34px;
+    border-radius: Theme.radius-btn;
+    border-width: 1.5px;
+    border-color: Theme.cinnabar;
+    background: ta.has-hover ? Theme.cinnabar-hover-soft : transparent;
+    animate background { duration: 150ms; easing: ease; }
+
+    ta := TouchArea {
+        clicked => { root.clicked(); }
+        mouse-cursor: pointer;
+    }
+
+    Text {
+        width: 100%;
+        height: 100%;
+        text: "今";
+        font-size: 13px;
+        font-weight: 700;
+        color: Theme.cinnabar;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}

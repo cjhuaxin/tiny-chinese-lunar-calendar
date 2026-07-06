@@ -1,0 +1,476 @@
+import { Theme } from "theme.slint";
+import { DayCellData, WeekdayLabel, DayCellView, PinButton, TodayButton } from "components.slint";
+import { ScrollView } from "std-widgets.slint";
+
+export component MainWindow inherits Window {
+    width: 500px;
+    height: 450px;
+    title: "小小万年历";
+    no-frame: true;
+    always-on-top: true;
+    background: transparent;
+    default-font-family: Theme.font-family;
+
+    // ─── hero ───
+    in property <string> hero-day;
+    in property <string> hero-weekday;
+    in property <string> lunar-title;
+    in property <string> festivals-text;
+    in property <int> festivals-more: 0;
+    in property <string> meta-text;
+    in property <string> workday-line;
+    in property <bool> pinned: false;
+
+    // ─── month grid ───
+    in property <string> year-text;
+    in property <string> month-name;
+    in property <int> focused-year;
+    in property <int> focused-month;
+    in property <int> grid-rows: 5;
+    in property <[DayCellData]> days;
+    in property <[WeekdayLabel]> weekday-labels;
+    in property <int> current-year;
+
+    // ─── year/month picker ───
+    in-out property <bool> picker-open: false;
+    in-out property <int> picker-selected-year;
+    property <[string]> month-names: ["一月", "二月", "三月", "四月", "五月", "六月", "七月", "八月", "九月", "十月", "十一月", "十二月"];
+
+    callback select-day(string);
+    callback change-month(int);
+    callback go-today();
+    callback toggle-pin();
+    callback confirm-year-month(int, int);
+    callback start-drag();
+
+    shell := Rectangle {
+        border-radius: Theme.radius-shell;
+        background: Theme.paper-bg;
+        border-width: 1px;
+        border-color: Theme.paper-border;
+        clip: true;
+
+        VerticalLayout {
+            // ─── Today-focus hero ───
+            hero := Rectangle {
+                // Matches the Tauri hero: 14px + ~53px content + 12px padding.
+                height: 79px;
+                background: @linear-gradient(180deg, Theme.paper-surface 0%, Theme.paper-surface-end 100%);
+
+                hero-ta := TouchArea {
+                    moved => {
+                        if (self.pressed) {
+                            root.start-drag();
+                        }
+                    }
+                }
+
+                HorizontalLayout {
+                    padding-left: 16px;
+                    padding-right: 16px;
+                    padding-top: 13px;
+                    padding-bottom: 13px;
+                    spacing: 14px;
+
+                    // date column
+                    date-col := VerticalLayout {
+                        alignment: center;
+                        min-width: 52px;
+                        horizontal-stretch: 0;
+                        Rectangle {
+                            height: 37px;
+                            Text {
+                                text: root.hero-day;
+                                font-size: 38px;
+                                font-weight: 700;
+                                color: Theme.cinnabar;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                                width: 100%;
+                                height: 100%;
+                                // Digits sit below the CJK font's metric
+                                // center; nudge up for visual centering.
+                                y: -3px;
+                            }
+                        }
+                        Rectangle { height: 1px; }
+                        Text {
+                            text: root.hero-weekday;
+                            font-size: 12px;
+                            font-weight: 600;
+                            color: Theme.ink-secondary;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                            height: 14px;
+                        }
+                    }
+
+                    // info column
+                    info-col := VerticalLayout {
+                        alignment: center;
+                        spacing: 3px;
+                        horizontal-stretch: 1;
+
+                        // primary line: lunar title · festivals
+                        // All-CJK content: center-align every text so the
+                        // smaller festival label lines up with the "·"
+                        // (bottom alignment drifts across font sizes).
+                        HorizontalLayout {
+                            alignment: start;
+                            spacing: 0;
+                            height: 22px;
+                            Text {
+                                text: root.lunar-title;
+                                font-size: 16px;
+                                font-weight: 700;
+                                color: Theme.ink;
+                                overflow: elide;
+                                // 55% of the fixed 326px info column (window is not resizable)
+                                max-width: 179.3px;
+                                vertical-alignment: center;
+                            }
+                            if root.festivals-text != "" : Rectangle { width: 6px; }
+                            if root.festivals-text != "" : Text {
+                                text: "·";
+                                font-size: 16px;
+                                color: Theme.ink-secondary;
+                                opacity: 0.45;
+                                vertical-alignment: center;
+                            }
+                            if root.festivals-text != "" : Rectangle { width: 6px; }
+                            if root.festivals-text != "" : Text {
+                                text: root.festivals-text;
+                                font-size: 13px;
+                                font-weight: 600;
+                                color: Theme.cinnabar;
+                                overflow: elide;
+                                vertical-alignment: center;
+                            }
+                            if root.festivals-more > 0 : Text {
+                                text: " · +" + root.festivals-more;
+                                font-size: 13px;
+                                font-weight: 600;
+                                color: Theme.cinnabar;
+                                opacity: 0.72;
+                                vertical-alignment: center;
+                            }
+                        }
+
+                        // secondary line: 生肖年 · 相对日期 · 法定假日/调休上班
+                        if root.meta-text != "" || root.workday-line != "" : HorizontalLayout {
+                            alignment: start;
+                            spacing: 0;
+                            height: 16px;
+                            if root.meta-text != "" : Text {
+                                text: root.meta-text;
+                                font-size: 11px;
+                                color: Theme.ink-secondary;
+                                vertical-alignment: bottom;
+                            }
+                            if root.meta-text != "" && root.workday-line != "" : Rectangle { width: 6px; }
+                            if root.meta-text != "" && root.workday-line != "" : Text {
+                                text: "·";
+                                font-size: 11px;
+                                color: Theme.ink-secondary;
+                                opacity: 0.45;
+                                vertical-alignment: bottom;
+                            }
+                            if root.meta-text != "" && root.workday-line != "" : Rectangle { width: 6px; }
+                            if root.workday-line != "" : Text {
+                                text: root.workday-line;
+                                font-size: 13px;
+                                font-weight: 600;
+                                color: Theme.cinnabar;
+                                vertical-alignment: bottom;
+                            }
+                        }
+                    }
+
+                    // actions column
+                    VerticalLayout {
+                        alignment: center;
+                        horizontal-stretch: 0;
+                        HorizontalLayout {
+                            spacing: 4px;
+                            VerticalLayout {
+                                alignment: center;
+                                PinButton {
+                                    pinned: root.pinned;
+                                    hero-hover: hero-ta.has-hover;
+                                    clicked => { root.toggle-pin(); }
+                                }
+                            }
+                            TodayButton {
+                                clicked => { root.go-today(); }
+                            }
+                        }
+                    }
+                }
+
+                // bottom divider
+                Rectangle {
+                    y: parent.height - 1px;
+                    height: 1px;
+                    width: 100%;
+                    background: Theme.paper-divider;
+                }
+            }
+
+            // ─── Calendar body ───
+            body := Rectangle {
+                vertical-stretch: 1;
+                // approximates color-mix(paper-surface-end 42%, paper-grid) fading into paper-grid at 28px
+                background: @linear-gradient(180deg, #f2ece1 0%, #f6f1e8 8%, #f6f1e8 100%);
+
+                VerticalLayout {
+                    padding-left: 12px;
+                    padding-right: 12px;
+                    padding-top: 0;
+                    padding-bottom: 10px;
+
+                    // month nav
+                    HorizontalLayout {
+                        padding-top: 5px;
+                        padding-bottom: 4px;
+                        alignment: center;
+                        spacing: 0;
+
+                        prev-btn := Rectangle {
+                            border-radius: 6px;
+                            background: prev-ta.has-hover ? Theme.cinnabar-soft : transparent;
+                            HorizontalLayout {
+                                padding-left: 6px;
+                                padding-right: 6px;
+                                padding-top: 2px;
+                                padding-bottom: 2px;
+                                Text {
+                                    text: "‹";
+                                    font-size: 16px;
+                                    color: prev-ta.has-hover ? Theme.cinnabar : Theme.ink-muted;
+                                    vertical-alignment: center;
+                                }
+                            }
+                            prev-ta := TouchArea {
+                                clicked => { root.change-month(-1); }
+                                mouse-cursor: pointer;
+                            }
+                        }
+
+                        title-btn := Rectangle {
+                            border-radius: 6px;
+                            background: title-ta.has-hover ? Theme.cinnabar-soft : transparent;
+                            HorizontalLayout {
+                                padding-left: 10px;
+                                padding-right: 10px;
+                                padding-top: 3px;
+                                padding-bottom: 3px;
+                                spacing: 4.5px;
+                                Text {
+                                    text: root.year-text;
+                                    font-size: 13px;
+                                    font-weight: 600;
+                                    color: Theme.ink;
+                                    vertical-alignment: center;
+                                }
+                                Text {
+                                    text: root.month-name;
+                                    font-size: 13px;
+                                    font-weight: 600;
+                                    color: Theme.ink;
+                                    min-width: 39px;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+                            }
+                            title-ta := TouchArea {
+                                clicked => {
+                                    root.picker-selected-year = root.focused-year;
+                                    root.picker-open = true;
+                                }
+                                mouse-cursor: pointer;
+                            }
+                        }
+
+                        next-btn := Rectangle {
+                            border-radius: 6px;
+                            background: next-ta.has-hover ? Theme.cinnabar-soft : transparent;
+                            HorizontalLayout {
+                                padding-left: 6px;
+                                padding-right: 6px;
+                                padding-top: 2px;
+                                padding-bottom: 2px;
+                                Text {
+                                    text: "›";
+                                    font-size: 16px;
+                                    color: next-ta.has-hover ? Theme.cinnabar : Theme.ink-muted;
+                                    vertical-alignment: center;
+                                }
+                            }
+                            next-ta := TouchArea {
+                                clicked => { root.change-month(1); }
+                                mouse-cursor: pointer;
+                            }
+                        }
+                    }
+
+                    // weekday row
+                    HorizontalLayout {
+                        spacing: 0;
+                        for lbl in root.weekday-labels : Text {
+                            text: lbl.text;
+                            font-size: 11px;
+                            font-weight: 600;
+                            color: lbl.weekend ? Theme.weekend : Theme.ink-secondary;
+                            horizontal-alignment: center;
+                            horizontal-stretch: 1;
+                        }
+                    }
+
+                    Rectangle { height: 2px; }
+
+                    // day grid
+                    grid := Rectangle {
+                        vertical-stretch: 1;
+                        for cell[i] in root.days : DayCellView {
+                            x: Math.mod(i, 7) * grid.width / 7;
+                            y: Math.floor(i / 7) * grid.height / root.grid-rows;
+                            width: grid.width / 7;
+                            height: grid.height / root.grid-rows;
+                            cell: cell;
+                            pressed => { root.select-day(cell.date); }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ─── Year/month picker overlay ───
+        if root.picker-open : Rectangle {
+            width: 100%;
+            height: 100%;
+            background: #3d2e1f59; // rgba(61,46,31,0.35)
+
+            TouchArea {
+                clicked => { root.picker-open = false; }
+            }
+
+            dialog := Rectangle {
+                width: 400px;
+                height: 310px;
+                background: Theme.paper-bg;
+                border-radius: 12px;
+                border-width: 1px;
+                border-color: Theme.paper-border;
+                clip: true;
+
+                TouchArea { } // swallow clicks inside the dialog
+
+                VerticalLayout {
+                    // years
+                    years-area := Rectangle {
+                        height: 198px;
+                        background: Theme.paper-surface;
+
+                        year-scroll := ScrollView {
+                            // Row of the selected year within the 5-per-row grid.
+                            property <int> sel-row: Math.floor((root.picker-selected-year - 1925) / 5);
+
+                            width: 100%;
+                            height: 100%;
+                            viewport-height: 16px * 2 + Math.ceil(201 / 5) * 58px - 8px;
+                            // Open with the selected year's row vertically
+                            // centered (clamped to the scroll range). The
+                            // overlay is recreated on each open, so init runs
+                            // every time; a one-shot assignment (rather than a
+                            // binding) keeps the list from jumping when the
+                            // user clicks another year.
+                            init => {
+                                self.viewport-y = -Math.max(0px, Math.min(
+                                    self.viewport-height - years-area.height,
+                                    16px + self.sel-row * 58px - (years-area.height - 50px) / 2));
+                            }
+
+                            for i in 201 : year-cell := Rectangle {
+                                property <int> yr: 1925 + i;
+                                property <bool> is-sel: self.yr == root.picker-selected-year;
+                                property <bool> is-cur: self.yr == root.current-year;
+                                x: 16px + Math.mod(i, 5) * (66.8px + 8px);
+                                y: 16px + Math.floor(i / 5) * 58px;
+                                width: 66.8px;
+                                height: 50px;
+                                border-radius: Theme.radius-cell;
+                                background: self.is-sel ? Theme.cinnabar
+                                    : y-ta.has-hover ? Theme.cinnabar-soft
+                                    : transparent;
+                                border-width: (self.is-cur && !self.is-sel) ? 1.5px : 0;
+                                border-color: Theme.cinnabar;
+
+                                y-ta := TouchArea {
+                                    clicked => { root.picker-selected-year = year-cell.yr; }
+                                    mouse-cursor: pointer;
+                                }
+
+                                Text {
+                                    width: 100%;
+                                    height: 100%;
+                                    text: year-cell.yr;
+                                    font-size: 14px;
+                                    font-weight: (year-cell.is-sel || year-cell.is-cur) ? 700 : 400;
+                                    color: year-cell.is-sel ? Theme.paper-bg
+                                        : year-cell.is-cur ? Theme.cinnabar
+                                        : Theme.ink;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+
+                        Rectangle {
+                            y: parent.height - 1px;
+                            height: 1px;
+                            width: 100%;
+                            background: Theme.paper-divider;
+                        }
+                    }
+
+                    // months
+                    months-area := Rectangle {
+                        vertical-stretch: 1;
+                        for m[i] in root.month-names : month-cell := Rectangle {
+                            property <bool> is-sel: (i + 1) == root.focused-month && root.picker-selected-year == root.focused-year;
+                            x: 16px + Math.mod(i, 6) * (56px + 6px);
+                            y: 16px + Math.floor(i / 6) * (36px + 6px);
+                            width: 56px;
+                            height: 36px;
+                            border-radius: 6px;
+                            background: self.is-sel ? Theme.cinnabar-hover-soft
+                                : m-ta.has-hover ? Theme.cinnabar-soft
+                                : Theme.paper-surface;
+                            border-width: self.is-sel ? 2px : 0;
+                            border-color: Theme.cinnabar;
+
+                            m-ta := TouchArea {
+                                clicked => {
+                                    root.picker-open = false;
+                                    root.confirm-year-month(root.picker-selected-year, i + 1);
+                                }
+                                mouse-cursor: pointer;
+                            }
+
+                            Text {
+                                width: 100%;
+                                height: 100%;
+                                text: m;
+                                font-size: 10px;
+                                font-weight: month-cell.is-sel ? 700 : 400;
+                                color: month-cell.is-sel ? Theme.cinnabar : Theme.ink;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

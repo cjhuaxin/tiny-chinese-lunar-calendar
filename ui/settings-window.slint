@@ -1,0 +1,278 @@
+import { Theme } from "theme.slint";
+
+component CheckBox16 inherits Rectangle {
+    in property <bool> checked;
+    callback toggled;
+
+    width: 16px;
+    height: 16px;
+    border-radius: 3px;
+    background: checked ? Theme.cinnabar : white;
+    border-width: checked ? 0 : 1px;
+    border-color: #b9ab99;
+
+    TouchArea {
+        clicked => { root.toggled(); }
+        mouse-cursor: pointer;
+    }
+
+    if checked : Path {
+        width: 10px;
+        height: 10px;
+        viewbox-width: 16;
+        viewbox-height: 16;
+        commands: "M 3 8.5 L 6.5 12 L 13 4.5";
+        stroke: white;
+        stroke-width: 2px;
+    }
+}
+
+component Radio16 inherits Rectangle {
+    in property <bool> checked;
+    callback toggled;
+
+    width: 16px;
+    height: 16px;
+    border-radius: 8px;
+    background: white;
+    border-width: checked ? 5px : 1px;
+    border-color: checked ? Theme.cinnabar : #b9ab99;
+
+    TouchArea {
+        clicked => { root.toggled(); }
+        mouse-cursor: pointer;
+    }
+}
+
+component OptionRow inherits HorizontalLayout {
+    in property <string> text;
+    in property <bool> checked;
+    in property <bool> radio: false;
+    callback toggled;
+
+    spacing: 10px;
+    alignment: start;
+
+    VerticalLayout {
+        alignment: start;
+        padding-top: 2px;
+        if !root.radio : CheckBox16 {
+            checked: root.checked;
+            toggled => { root.toggled(); }
+        }
+        if root.radio : Radio16 {
+            checked: root.checked;
+            toggled => { root.toggled(); }
+        }
+    }
+    label-ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.toggled(); }
+        Text {
+            text: root.text;
+            font-size: 14px;
+            color: Theme.ink;
+            vertical-alignment: center;
+        }
+    }
+}
+
+component SettingsButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> primary: false;
+    callback clicked;
+
+    min-width: 96px;
+    height: 37px;
+    border-radius: 8px;
+    background: primary
+        ? (ta.has-hover ? Theme.cinnabar.darker(8%) : Theme.cinnabar)
+        : (ta.has-hover ? Theme.cinnabar-hover-soft : transparent);
+    border-width: primary ? 0 : 1px;
+    border-color: Theme.paper-border;
+
+    ta := TouchArea {
+        clicked => { root.clicked(); }
+        mouse-cursor: pointer;
+    }
+
+    Text {
+        width: 100%;
+        height: 100%;
+        text: root.text;
+        font-size: 14px;
+        color: primary ? #faf7f2 : Theme.ink;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+export component SettingsWindow inherits Window {
+    width: 400px;
+    height: 520px;
+    title: "偏好设置";
+    no-frame: true;
+    always-on-top: true;
+    background: Theme.paper-bg;
+    default-font-family: Theme.font-family;
+
+    in-out property <bool> draft-sunday-first;
+    in-out property <bool> draft-show-intl;
+    in-out property <bool> draft-launch-login;
+    // false => 节气优先, true => 国际节日优先
+    in-out property <bool> draft-priority-intl;
+
+    callback save();
+    callback cancel();
+    callback start-drag();
+
+    VerticalLayout {
+        // header
+        header := Rectangle {
+            TouchArea {
+                moved => {
+                    if (self.pressed) {
+                        root.start-drag();
+                    }
+                }
+            }
+            VerticalLayout {
+                padding-left: 24px;
+                padding-right: 24px;
+                padding-top: 20px;
+                padding-bottom: 12px;
+                Text {
+                    text: "偏好设置";
+                    font-size: 18px;
+                    font-weight: 600;
+                    color: Theme.ink;
+                }
+            }
+            Rectangle {
+                y: parent.height - 1px;
+                height: 1px;
+                width: 100%;
+                background: Theme.paper-border;
+            }
+        }
+
+        // body
+        Rectangle {
+            vertical-stretch: 1;
+            VerticalLayout {
+                alignment: start;
+                padding-left: 24px;
+                padding-right: 24px;
+                padding-top: 20px;
+                padding-bottom: 20px;
+
+                // ── 日历 ──
+                VerticalLayout {
+                    spacing: 12px;
+                    Text {
+                        text: "日历";
+                        font-size: 15px;
+                        font-weight: 600;
+                        color: Theme.ink;
+                    }
+                    OptionRow {
+                        text: "从周日开始";
+                        checked: root.draft-sunday-first;
+                        toggled => { root.draft-sunday-first = !root.draft-sunday-first; }
+                    }
+                    OptionRow {
+                        text: "显示国际节日";
+                        checked: root.draft-show-intl;
+                        toggled => { root.draft-show-intl = !root.draft-show-intl; }
+                    }
+                    Text {
+                        text: "含情人节、母亲节、父亲节、万圣节、感恩节、圣诞节等";
+                        font-size: 12px;
+                        color: Theme.ink-muted;
+                        wrap: word-wrap;
+                    }
+                    if root.draft-show-intl : Rectangle {
+                        border-radius: 10px;
+                        background: #3d2e1f0a; // rgba(61,46,31,0.04)
+                        VerticalLayout {
+                            padding-left: 14px;
+                            padding-right: 14px;
+                            padding-top: 12px;
+                            padding-bottom: 12px;
+                            spacing: 10px;
+                            Text {
+                                text: "节气与国际节日冲突时优先显示";
+                                font-size: 13px;
+                                font-weight: 600;
+                                color: Theme.ink;
+                            }
+                            OptionRow {
+                                radio: true;
+                                text: "节气";
+                                checked: !root.draft-priority-intl;
+                                toggled => { root.draft-priority-intl = false; }
+                            }
+                            OptionRow {
+                                radio: true;
+                                text: "国际节日";
+                                checked: root.draft-priority-intl;
+                                toggled => { root.draft-priority-intl = true; }
+                            }
+                        }
+                    }
+                }
+
+                // ── 系统 ──
+                Rectangle { height: 24px; }
+                Rectangle { height: 1px; background: Theme.paper-border; }
+                Rectangle { height: 24px; }
+                VerticalLayout {
+                    spacing: 12px;
+                    Text {
+                        text: "系统";
+                        font-size: 15px;
+                        font-weight: 600;
+                        color: Theme.ink;
+                    }
+                    OptionRow {
+                        text: "开机启动";
+                        checked: root.draft-launch-login;
+                        toggled => { root.draft-launch-login = !root.draft-launch-login; }
+                    }
+                    Text {
+                        text: "登录 macOS 后自动在菜单栏运行";
+                        font-size: 12px;
+                        color: Theme.ink-muted;
+                    }
+                }
+            }
+        }
+
+        // footer
+        footer := Rectangle {
+            Rectangle {
+                y: 0;
+                height: 1px;
+                width: 100%;
+                background: Theme.paper-border;
+            }
+            HorizontalLayout {
+                alignment: end;
+                padding-left: 24px;
+                padding-right: 24px;
+                padding-top: 16px;
+                padding-bottom: 16px;
+                spacing: 10px;
+                SettingsButton {
+                    text: "取消";
+                    clicked => { root.cancel(); }
+                }
+                SettingsButton {
+                    text: "保存并关闭";
+                    primary: true;
+                    clicked => { root.save(); }
+                }
+            }
+        }
+    }
+}

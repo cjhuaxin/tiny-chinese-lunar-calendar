@@ -1,0 +1,40 @@
+[package]
+name = "tiny-chinese-lunar-calendar"
+version = "0.1.0"
+description = "小小万年历 - macOS menu bar lunar calendar (Slint)"
+authors = ["cjhuaxin"]
+edition = "2021"
+
+[dependencies]
+# NOTE: no "accessibility" feature: the accesskit adapter keeps a reference to
+# the winit window, which breaks SLINT_DESTROY_WINDOW_ON_HIDE (used to release
+# renderer memory whenever the calendar popover is hidden).
+slint = { version = "1.17", default-features = false, features = ["std", "compat-1-2", "backend-winit", "renderer-femtovg", "unstable-winit-030"] }
+tray-icon = "0.24"
+auto-launch = "0.6"
+dirs = "6"
+tyme4rs = "1.5.0"
+chrono = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+once_cell = "1"
+image = "0.25"
+ab_glyph = "0.2"
+memmap2 = "0.9.11"
+ttf-parser = "0.25"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-text = "20"
+block2 = "0.6"
+objc2 = "0.6"
+objc2-foundation = "0.3"
+objc2-app-kit = "0.3"
+
+[build-dependencies]
+slint-build = "1.17"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+opt-level = "s"

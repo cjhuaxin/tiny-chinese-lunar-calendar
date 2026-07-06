@@ -1,0 +1,68 @@
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum CalendarLabelPriority {
+    #[default]
+    SolarTerm,
+    InternationalFestival,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AppSettings {
+    pub sunday_first: bool,
+    #[serde(default = "default_show_international_festivals")]
+    pub show_international_festivals: bool,
+    #[serde(default)]
+    pub launch_at_login: bool,
+    #[serde(default)]
+    pub calendar_label_priority: CalendarLabelPriority,
+}
+
+fn default_show_international_festivals() -> bool {
+    true
+}
+
+impl Default for AppSettings {
+    fn default() -> Self {
+        Self {
+            sunday_first: false,
+            show_international_festivals: true,
+            launch_at_login: false,
+            calendar_label_priority: CalendarLabelPriority::SolarTerm,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct DayCell {
+    pub date: String,
+    pub solar_day: u32,
+    pub lunar_text: String,
+    pub lunar_text_kind: String,
+    pub is_current_month: bool,
+    pub is_outside_visible: bool,
+    pub is_today: bool,
+    pub is_selected: bool,
+    pub is_weekend: bool,
+    pub workday_tag: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct MonthGrid {
+    pub year: i32,
+    pub month: u32,
+    pub rows: u32,
+    pub days: Vec<DayCell>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct DayDetail {
+    pub date: String,
+    pub lunar_date_title: String,
+    pub zodiac: String,
+    pub festivals: Vec<String>,
+    pub humanized_date: String,
+    pub alternate_humanized: Option<String>,
+}

@@ -1,0 +1,41 @@
+// Subset of LXGW WenKai (OFL licensed, see fonts/OFL.txt); covers ASCII plus
+// every CJK char reachable from this repo and the tyme4rs lunar data.
+import "fonts/LXGWWenKai-Regular.ttf";
+import "fonts/LXGWWenKai-Medium.ttf";
+
+// Palette and metrics mirroring the Tauri version's theme.css.
+export global Theme {
+    out property <color> paper-bg: #faf7f2;
+    out property <color> paper-grid: #f6f1e8;
+    out property <color> paper-surface: #f5efe6;
+    out property <color> paper-surface-end: #ede5d8;
+    out property <color> paper-border: #e8dfd0;
+    out property <color> paper-divider: #ddd0bc;
+
+    out property <color> ink: #3d2e1f;
+    out property <color> ink-secondary: #8a7a68;
+    // Darker than ink-secondary so in-month lunar labels stand out
+    // against the grayed-out outside-month days.
+    out property <color> lunar-ink: #75634d;
+    out property <color> ink-muted: #a08060;
+
+    out property <color> cinnabar: #c45c3e;
+    out property <color> cinnabar-soft: #f0e4d6;
+    out property <color> sage: #5a7a5a;
+    out property <color> solar-blue: #4a6a8a;
+
+    out property <color> outside-gray: #c8bdb0;
+    out property <color> weekend: #c45c3e;
+
+    // rgba(196,92,62,0.06) / 0.08 hover tints
+    out property <color> cinnabar-hover-faint: #c45c3e0f;
+    out property <color> cinnabar-hover-soft: #c45c3e14;
+    // rgba(61,46,31,0.06)
+    out property <color> ink-hover-faint: #3d2e1f0f;
+
+    out property <length> radius-shell: 14px;
+    out property <length> radius-cell: 8px;
+    out property <length> radius-btn: 8px;
+
+    out property <string> font-family: "LXGW WenKai";
+}
