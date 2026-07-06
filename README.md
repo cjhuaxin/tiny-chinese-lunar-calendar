@@ -11,6 +11,8 @@
 [![Platform](https://img.shields.io/badge/platform-macOS-blue?logo=apple&logoColor=white)](https://github.com/cjhuaxin/tiny-chinese-lunar-calendar)
 [![Rust](https://img.shields.io/badge/Rust-2021-orange?logo=rust&logoColor=white)](https://www.rust-lang.org/)
 [![Slint](https://img.shields.io/badge/UI-Slint%201.17-2f7bf6)](https://slint.dev/)
+[![Release](https://img.shields.io/github/v/release/cjhuaxin/tiny-chinese-lunar-calendar?color=brightgreen)](https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/cjhuaxin/tiny-chinese-lunar-calendar/total?color=success&label=downloads)](https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/releases)
 
 </div>
 
