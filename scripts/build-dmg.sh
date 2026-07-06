@@ -6,7 +6,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 APP_NAME="小小万年历"
-VERSION="0.1.0"
+VERSION="0.1.1"
 APP_DIR="dist/${APP_NAME}.app"
 DMG_PATH="dist/${APP_NAME}-${VERSION}.dmg"
 STAGING_DIR="dist/dmg-staging"

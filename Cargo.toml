@@ -1,6 +1,6 @@
 [package]
 name = "tiny-chinese-lunar-calendar"
-version = "0.1.0"
+version = "0.1.1"
 description = "小小万年历 - macOS menu bar lunar calendar (Slint)"
 authors = ["cjhuaxin"]
 edition = "2021"

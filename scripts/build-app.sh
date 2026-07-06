@@ -7,7 +7,7 @@ cd "$(dirname "$0")/.."
 APP_NAME="小小万年历"
 BIN_NAME="tiny-chinese-lunar-calendar"
 BUNDLE_ID="com.cjhuaxin.tclc"
-VERSION="0.1.0"
+VERSION="0.1.1"
 
 CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$PWD/target}" cargo build --release
 
