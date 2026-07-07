@@ -48,6 +48,18 @@ semver_to_build_number() {
     echo $(( major * 10000 + minor * 100 + patch ))
 }
 
+# Returns the repository's default branch (e.g. main).
+get_default_branch() {
+    local branch
+    branch="$(git rev-parse --abbrev-ref origin/HEAD 2>/dev/null | sed 's|^origin/||')"
+    echo "${branch:-main}"
+}
+
+appcast_feed_url() {
+    local repo="${1:-cjhuaxin/tiny-chinese-lunar-calendar}"
+    echo "https://raw.githubusercontent.com/${repo}/$(get_default_branch)/appcast/appcast.xml"
+}
+
 # Returns the release tag immediately before v{version}, or empty if none.
 previous_release_tag() {
     local version="$1"

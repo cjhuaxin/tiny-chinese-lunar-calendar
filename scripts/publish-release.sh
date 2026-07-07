@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Publishes a GitHub release with DMG + Sparkle update zip, then updates appcast.xml.
+# Automatically commits Cargo.toml/Cargo.lock version bumps and creates the git tag.
 # Usage: scripts/publish-release.sh [version]
 # Requires: gh auth login (or GH_TOKEN env var)
 set -euo pipefail
@@ -37,9 +38,35 @@ if [[ ! -f "$NOTES_FILE" ]]; then
     NOTES_GENERATED=true
 fi
 
+# Sync Cargo.toml to the requested version, then commit version files and create the tag.
+current_version="$(get_version)"
+if [[ "$current_version" != "$VERSION" ]]; then
+    set_version "$VERSION"
+fi
+
+other_dirty="$(git status --porcelain | grep -Ev '^(..) (Cargo\.toml|Cargo\.lock)$' || true)"
+if [[ -n "$other_dirty" ]]; then
+    echo "warning: other uncommitted changes detected (only Cargo.toml/Cargo.lock will be committed):" >&2
+    echo "$other_dirty" >&2
+fi
+
+version_files=(Cargo.toml Cargo.lock)
+files_to_bump=()
+for file in "${version_files[@]}"; do
+    if ! git diff --quiet -- "$file" 2>/dev/null || [[ -n "$(git status --porcelain -- "$file")" ]]; then
+        files_to_bump+=("$file")
+    fi
+done
+
+if [[ ${#files_to_bump[@]} -gt 0 ]]; then
+    echo "Committing version bump..."
+    git add "${files_to_bump[@]}"
+    git commit -m "Bump version to ${VERSION}"
+fi
+
 if ! git rev-parse "$TAG" >/dev/null 2>&1; then
-    echo "error: tag $TAG not found. Create with: git tag -a $TAG -m \"Release $VERSION\"" >&2
-    exit 1
+    echo "Creating tag ${TAG}..."
+    git tag -a "$TAG" -m "Release ${VERSION}"
 fi
 
 if [[ ! -f "$ZIP_PATH" ]]; then
@@ -87,4 +114,4 @@ else
 fi
 
 echo "Published: https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/releases/tag/${TAG}"
-echo "Appcast: https://raw.githubusercontent.com/cjhuaxin/tiny-chinese-lunar-calendar/main/appcast/appcast.xml"
+echo "Appcast: $(appcast_feed_url)"
