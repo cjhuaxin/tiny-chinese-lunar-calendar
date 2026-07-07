@@ -853,18 +853,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "core-text"
-version = "20.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c9d2790b5c08465d49f8dc05c8bcae9fea467855947db39b0f8145c091aaced5"
-dependencies = [
- "core-foundation 0.9.4",
- "core-graphics",
- "foreign-types",
- "libc",
-]
-
-[[package]]
 name = "core_maths"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5021,10 +5009,8 @@ dependencies = [
  "auto-launch",
  "block2 0.6.2",
  "chrono",
- "core-text",
  "dirs",
  "image",
- "memmap2",
  "objc2 0.6.4",
  "objc2-app-kit 0.3.2",
  "objc2-foundation 0.3.2",
@@ -5034,7 +5020,6 @@ dependencies = [
  "slint",
  "slint-build",
  "tray-icon",
- "ttf-parser",
  "tyme4rs",
 ]
 

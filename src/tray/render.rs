@@ -28,7 +28,7 @@ const DAY_BOTTOM_INSET: f32 = 1.0;
 const WEEKDAY_FAUX_BOLD_OFFSET: f32 = 0.7;
 
 static FONT: Lazy<FontRef<'static>> = Lazy::new(|| {
-    fontload::load_tray_font().expect("failed to load system font for tray icon")
+    fontload::load_tray_font().expect("failed to load embedded font for tray icon")
 });
 
 fn card_rect() -> (f32, f32, f32, f32) {
