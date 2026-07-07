@@ -2,20 +2,20 @@
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
     <channel>
         <title>小小万年历</title>
-        <link>https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/releases/tag/v0.2.2</link>
+        <link>https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/releases/tag/v0.2.3</link>
         <description>Most recent updates to 小小万年历</description>
         <language>zh-cn</language>
         <item>
-            <title>Version 0.2.2</title>
-            <link>https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/releases/tag/v0.2.2</link>
-            <sparkle:version>202</sparkle:version>
-            <sparkle:shortVersionString>0.2.2</sparkle:shortVersionString>
-            <sparkle:releaseNotesLink>https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/releases/tag/v0.2.2</sparkle:releaseNotesLink>
-            <pubDate>Tue, 07 Jul 2026 11:24:28 +0000</pubDate>
+            <title>Version 0.2.3</title>
+            <link>https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/releases/tag/v0.2.3</link>
+            <sparkle:version>203</sparkle:version>
+            <sparkle:shortVersionString>0.2.3</sparkle:shortVersionString>
+            <sparkle:releaseNotesLink>https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/releases/tag/v0.2.3</sparkle:releaseNotesLink>
+            <pubDate>Tue, 07 Jul 2026 11:31:21 +0000</pubDate>
             <enclosure
-                url="https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/releases/download/v0.2.2/xiaoxiao-wannianli-0.2.2.zip"
-                sparkle:edSignature="OGrwukRDaeW5QiafPIRVCzISvA26YBVR4qjFsZYPM6/BnAFMkgC1T15yqZB5x2vKgY53G5dmh0gpZ0ery3DbCQ=="
-                length="9333520"
+                url="https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/releases/download/v0.2.3/xiaoxiao-wannianli-0.2.3.zip"
+                sparkle:edSignature="z10bQqAidstGnkYyps7U0qveew27ZGBX3/hP8W/jooErtlFKl7ws9feiz/MKTi0rphDfD+Iv092+7cA6GZDgCQ=="
+                length="9334195"
                 type="application/octet-stream" />
         </item>
     </channel>
