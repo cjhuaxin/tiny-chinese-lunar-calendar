@@ -3,11 +3,12 @@ use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
 use objc2::MainThreadMarker;
 use objc2_app_kit::{
-    NSAboutPanelOptionApplicationName, NSAboutPanelOptionApplicationVersion, NSApplication,
-    NSCellImagePosition, NSEvent, NSEventMask, NSScreen, NSWorkspace,
-    NSWorkspaceDidWakeNotification,
+    NSAboutPanelOptionApplicationName, NSAboutPanelOptionApplicationVersion, NSAlert,
+    NSAlertStyle, NSApplication, NSCellImagePosition, NSEvent, NSEventMask, NSFont, NSImageScaling,
+    NSImageView, NSLayoutAttribute, NSScreen, NSStackView, NSTextAlignment, NSTextField,
+    NSUserInterfaceLayoutOrientation, NSView, NSWorkspace, NSWorkspaceDidWakeNotification,
 };
-use objc2_foundation::{NSDictionary, NSNotification, NSOperationQueue, NSSize, NSString};
+use objc2_foundation::{NSArray, NSDictionary, NSEdgeInsets, NSNotification, NSOperationQueue, NSSize, NSString};
 use std::mem;
 use std::ptr::NonNull;
 use tray_icon::TrayIcon;
@@ -39,6 +40,82 @@ pub fn show_about_panel() {
     unsafe {
         NSApplication::sharedApplication(mtm).orderFrontStandardAboutPanelWithOptions(&dict);
     }
+}
+
+fn centered_label(text: &str, font: Option<&NSFont>, mtm: MainThreadMarker) -> Retained<NSTextField> {
+    let label = NSTextField::labelWithString(&NSString::from_str(text), mtm);
+    label.setEditable(false);
+    label.setSelectable(false);
+    label.setBezeled(false);
+    label.setDrawsBackground(false);
+    label.setAlignment(NSTextAlignment::Center);
+    if let Some(cell) = label.cell() {
+        cell.setAlignment(NSTextAlignment::Center);
+    }
+    if let Some(font) = font {
+        label.setFont(Some(font));
+    }
+    label
+}
+
+fn app_icon_view(mtm: MainThreadMarker) -> Retained<NSImageView> {
+    let view = NSImageView::new(mtm);
+    if let Some(icon) = NSApplication::sharedApplication(mtm).applicationIconImage() {
+        icon.setSize(NSSize::new(56.0, 56.0));
+        view.setImage(Some(&icon));
+    }
+    view.setImageScaling(NSImageScaling::ScaleProportionallyUpOrDown);
+    view
+}
+
+fn centered_status_accessory(title: &str, subtitle: &str, mtm: MainThreadMarker) -> Retained<NSStackView> {
+    let title_font = NSFont::boldSystemFontOfSize(15.0);
+    let subtitle_font = NSFont::systemFontOfSize(13.0);
+
+    let icon = app_icon_view(mtm);
+    let title_label = centered_label(title, Some(&title_font), mtm);
+    let subtitle_label = centered_label(subtitle, Some(&subtitle_font), mtm);
+
+    let views: [&NSView; 3] = [icon.as_ref(), title_label.as_ref(), subtitle_label.as_ref()];
+    let views_array = NSArray::from_slice(&views);
+    let stack = NSStackView::stackViewWithViews(&views_array, mtm);
+    stack.setOrientation(NSUserInterfaceLayoutOrientation::Vertical);
+    stack.setAlignment(NSLayoutAttribute::CenterX);
+    stack.setSpacing(10.0);
+    stack.setEdgeInsets(NSEdgeInsets {
+        top: 12.0,
+        left: 16.0,
+        bottom: 4.0,
+        right: 16.0,
+    });
+    stack
+}
+
+fn show_status_alert(title: &str, subtitle: &str, mtm: MainThreadMarker) {
+    let alert = NSAlert::new(mtm);
+    alert.setMessageText(&NSString::from_str(""));
+    alert.setInformativeText(&NSString::from_str(""));
+    alert.setAlertStyle(NSAlertStyle::Informational);
+    alert.setAccessoryView(Some(&centered_status_accessory(title, subtitle, mtm)));
+    alert.addButtonWithTitle(&NSString::from_str("好"));
+    alert.layout();
+    alert.runModal();
+}
+
+/// Shows a concise, centered "already up to date" dialog.
+pub fn show_up_to_date_alert(version: &str) {
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+    show_status_alert("已是最新版本", &format!("v{version}"), mtm);
+}
+
+/// Shows a concise error dialog when the update feed cannot be fetched.
+pub fn show_update_error_alert() {
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+    show_status_alert("无法检查更新", "请稍后再试", mtm);
 }
 
 pub fn observe_system_wake(handler: impl Fn() + Send + Sync + 'static) {

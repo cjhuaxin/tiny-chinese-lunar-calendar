@@ -1,9 +1,20 @@
 //! Sparkle-based in-app auto-updater (macOS only).
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use once_cell::sync::OnceCell;
 use sparklers::{Event, Sparkle, SparkleConfig};
 
 static SPARKLE: OnceCell<Sparkle> = OnceCell::new();
+static USER_INITIATED_CHECK: AtomicBool = AtomicBool::new(false);
+
+fn take_user_initiated_check() -> bool {
+    USER_INITIATED_CHECK.swap(false, Ordering::SeqCst)
+}
+
+fn show_on_main_thread(f: impl FnOnce() + Send + 'static) {
+    let _ = slint::invoke_from_event_loop(f);
+}
 
 /// Initializes the Sparkle updater. No-op when not running inside a .app bundle.
 pub fn init() {
@@ -19,16 +30,42 @@ pub fn init() {
     let _ = sparkle.set_automatically_downloads_updates(true);
     sparkle.set_should_relaunch_application(true);
     sparkle.set_event_callback(|event| match event {
-        Event::DidNotFindUpdate => eprintln!("updater: no update available"),
+        Event::DidNotFindUpdate => {
+            eprintln!("updater: no update available");
+            if take_user_initiated_check() {
+                let version = env!("CARGO_PKG_VERSION").to_string();
+                show_on_main_thread(move || {
+                    #[cfg(target_os = "macos")]
+                    crate::tray::macos::show_up_to_date_alert(&version);
+                });
+            }
+        }
         Event::DidFindValidUpdate { item } => {
             eprintln!("updater: update available: {}", item.version());
+            if take_user_initiated_check() {
+                if let Some(sparkle) = SPARKLE.get() {
+                    let _ = sparkle.check_for_updates();
+                }
+            }
         }
         Event::DidAbortWithError { error } => {
             eprintln!("updater: error: {}", error.message());
+            if take_user_initiated_check() {
+                show_on_main_thread(|| {
+                    #[cfg(target_os = "macos")]
+                    crate::tray::macos::show_update_error_alert();
+                });
+            }
         }
         Event::DidFinishUpdateCycle { error, .. } => {
             if let Some(error) = error {
                 eprintln!("updater: update cycle finished with error: {}", error.message());
+                if take_user_initiated_check() {
+                    show_on_main_thread(|| {
+                        #[cfg(target_os = "macos")]
+                        crate::tray::macos::show_update_error_alert();
+                    });
+                }
             }
         }
         _ => {}
@@ -44,10 +81,11 @@ pub fn check_in_background() {
     }
 }
 
-/// Triggers a user-initiated update check (shows Sparkle UI).
+/// Triggers a user-initiated update check with a custom status dialog.
 pub fn check_for_updates() {
     if let Some(sparkle) = SPARKLE.get() {
-        let _ = sparkle.check_for_updates();
+        USER_INITIATED_CHECK.store(true, Ordering::SeqCst);
+        let _ = sparkle.check_for_update_information();
     } else {
         eprintln!("updater: disabled (not running inside a macOS app bundle)");
     }

@@ -110,6 +110,7 @@ else
         git add "${files_to_commit[@]}"
         git commit -m "Prepare release ${VERSION}"
         git push origin HEAD
+        purge_appcast_cache || true
     fi
 fi
 

@@ -63,6 +63,21 @@ appcast_feed_url() {
     echo "https://cdn.jsdelivr.net/gh/${repo}@${branch}/appcast/appcast.xml"
 }
 
+# Purge the jsDelivr cache so Sparkle sees the latest appcast immediately after publish.
+purge_appcast_cache() {
+    local feed_url purge_path
+    feed_url="$(appcast_feed_url)"
+    purge_path="${feed_url#https://cdn.jsdelivr.net}"
+
+    echo "Purging jsDelivr cache for ${feed_url}..."
+    if curl -fsS "https://purge.jsdelivr.net${purge_path}" >/dev/null; then
+        echo "jsDelivr cache purged"
+    else
+        echo "warning: failed to purge jsDelivr cache" >&2
+        return 1
+    fi
+}
+
 # Returns the release tag immediately before v{version}, or empty if none.
 previous_release_tag() {
     local version="$1"
