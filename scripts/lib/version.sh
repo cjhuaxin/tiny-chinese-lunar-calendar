@@ -57,7 +57,10 @@ get_default_branch() {
 
 appcast_feed_url() {
     local repo="${1:-cjhuaxin/tiny-chinese-lunar-calendar}"
-    echo "https://raw.githubusercontent.com/${repo}/$(get_default_branch)/appcast/appcast.xml"
+    local branch
+    branch="$(get_default_branch)"
+    # raw.githubusercontent.com is often blocked or MITM'd in China; jsDelivr mirrors GitHub reliably.
+    echo "https://cdn.jsdelivr.net/gh/${repo}@${branch}/appcast/appcast.xml"
 }
 
 # Returns the release tag immediately before v{version}, or empty if none.
