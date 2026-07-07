@@ -84,12 +84,13 @@ fi
 
 if gh release view "$TAG" >/dev/null 2>&1; then
     echo "Release $TAG already exists. Uploading assets..."
-    gh release upload "$TAG" "$DMG_PATH" "$ZIP_PATH" --clobber
+    gh release upload "$TAG" "$DMG_PATH" "$ZIP_PATH" "$APPCAST_FILE" --clobber
 else
     echo "Creating release $TAG..."
     gh release create "$TAG" \
         "$DMG_PATH" \
         "$ZIP_PATH" \
+        "$APPCAST_FILE" \
         --title "${APP_NAME} ${VERSION}" \
         --notes-file "$NOTES_FILE"
 fi
@@ -115,4 +116,5 @@ else
 fi
 
 echo "Published: https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/releases/tag/${TAG}"
-echo "Appcast: $(appcast_feed_url)"
+echo "Appcast (runtime): $(appcast_runtime_feed_url)"
+echo "Appcast (jsDelivr): $(appcast_feed_url)"

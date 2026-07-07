@@ -59,8 +59,15 @@ appcast_feed_url() {
     local repo="${1:-cjhuaxin/tiny-chinese-lunar-calendar}"
     local branch
     branch="$(get_default_branch)"
-    # raw.githubusercontent.com is often blocked or MITM'd in China; jsDelivr mirrors GitHub reliably.
+    # Repo copy used for publishing; may lag behind CDN cache.
     echo "https://cdn.jsdelivr.net/gh/${repo}@${branch}/appcast/appcast.xml"
+}
+
+# Stable feed URL baked into the app. Points at the latest GitHub Release asset
+# so Sparkle always sees the current appcast without CDN branch-cache delays.
+appcast_runtime_feed_url() {
+    local repo="${1:-cjhuaxin/tiny-chinese-lunar-calendar}"
+    echo "https://github.com/${repo}/releases/latest/download/appcast.xml"
 }
 
 # Purge the jsDelivr cache so Sparkle sees the latest appcast immediately after publish.

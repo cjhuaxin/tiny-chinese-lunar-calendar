@@ -10,7 +10,7 @@ APP_NAME="小小万年历"
 BIN_NAME="tiny-chinese-lunar-calendar"
 BUNDLE_ID="com.cjhuaxin.tclc"
 GITHUB_REPO="https://github.com/cjhuaxin/tiny-chinese-lunar-calendar"
-APPCAST_URL="$(appcast_feed_url)"
+APPCAST_URL="$(appcast_runtime_feed_url)"
 SPARKLE_PUBLIC_KEY_FILE="appcast/sparkle_public_key.txt"
 SPARKLE_FRAMEWORK="Sparkle.framework"
 
