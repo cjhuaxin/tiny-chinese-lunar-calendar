@@ -1,5 +1,8 @@
 //! Sparkle-based in-app auto-updater (macOS only).
 
+#[cfg(target_os = "macos")]
+mod network;
+
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use once_cell::sync::OnceCell;
@@ -14,6 +17,13 @@ fn take_user_initiated_check() -> bool {
 
 fn show_on_main_thread(f: impl FnOnce() + Send + 'static) {
     let _ = slint::invoke_from_event_loop(f);
+}
+
+#[cfg(target_os = "macos")]
+pub(crate) fn sparkle_feed_url() -> Option<String> {
+    SPARKLE
+        .get()
+        .and_then(|sparkle| sparkle.feed_url().ok().flatten())
 }
 
 /// Initializes the Sparkle updater. No-op when not running inside a .app bundle.
@@ -74,18 +84,42 @@ pub fn init() {
     let _ = SPARKLE.set(sparkle);
 }
 
+fn run_sparkle_check(user_initiated: bool) {
+    #[cfg(target_os = "macos")]
+    {
+        if user_initiated {
+            crate::tray::macos::activate_app();
+        }
+        std::thread::spawn(move || {
+            network::prepare_network_for_sparkle();
+            let _ = slint::invoke_from_event_loop(move || {
+                if let Some(sparkle) = SPARKLE.get() {
+                    if user_initiated {
+                        let _ = sparkle.check_for_update_information();
+                    } else {
+                        let _ = sparkle.check_for_updates_in_background();
+                    }
+                }
+            });
+        });
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    let _ = user_initiated;
+}
+
 /// Checks for updates in the background after startup.
 pub fn check_in_background() {
-    if let Some(sparkle) = SPARKLE.get() {
-        let _ = sparkle.check_for_updates_in_background();
+    if SPARKLE.get().is_some() {
+        run_sparkle_check(false);
     }
 }
 
 /// Triggers a user-initiated update check with a custom status dialog.
 pub fn check_for_updates() {
-    if let Some(sparkle) = SPARKLE.get() {
+    if SPARKLE.get().is_some() {
         USER_INITIATED_CHECK.store(true, Ordering::SeqCst);
-        let _ = sparkle.check_for_update_information();
+        run_sparkle_check(true);
     } else {
         eprintln!("updater: disabled (not running inside a macOS app bundle)");
     }

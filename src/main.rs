@@ -16,7 +16,7 @@ use std::cell::Cell;
 use std::time::Duration;
 
 use slint::winit_030::winit;
-use tray_icon::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
+use tray_icon::menu::{IconMenuItem, Menu, MenuEvent, NativeIcon, PredefinedMenuItem};
 use tray_icon::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 
 use crate::app::{install_app, with_app, App};
@@ -212,17 +212,38 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 fn create_tray() -> Result<(), Box<dyn std::error::Error>> {
     let menu = Menu::new();
-    let settings_item = MenuItem::with_id(SETTINGS_MENU_ID, "设置", true, None);
-    let about_item = MenuItem::with_id(ABOUT_MENU_ID, "关于小小万年历", true, None);
-    let check_update_item = MenuItem::with_id(CHECK_UPDATE_MENU_ID, "检查更新", true, None);
+    let settings_item = IconMenuItem::with_id_and_native_icon(
+        SETTINGS_MENU_ID,
+        "设置",
+        true,
+        Some(NativeIcon::ListView),
+        None,
+    );
+    let check_update_item = IconMenuItem::with_id_and_native_icon(
+        CHECK_UPDATE_MENU_ID,
+        "检查更新",
+        true,
+        Some(NativeIcon::Refresh),
+        None,
+    );
+    let about_item = IconMenuItem::with_id_and_native_icon(
+        ABOUT_MENU_ID,
+        "关于小小万年历",
+        true,
+        Some(NativeIcon::User),
+        None,
+    );
     let quit_item = PredefinedMenuItem::quit(Some("退出"));
     menu.append_items(&[
         &settings_item,
-        &about_item,
         &check_update_item,
+        &about_item,
         &PredefinedMenuItem::separator(),
         &quit_item,
     ])?;
+
+    #[cfg(target_os = "macos")]
+    tray::macos::apply_tray_menu_icon_style(&menu);
 
     let tray = TrayIconBuilder::new()
         .with_id("main-tray")

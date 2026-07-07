@@ -457,6 +457,8 @@ impl App {
         let anchor = self.state.tray_anchor.get();
         let _ = self.settings_win.show();
         center_settings_on_anchor_screen(&self.settings_win, anchor, 8);
+        #[cfg(target_os = "macos")]
+        crate::tray::macos::raise_slint_window(self.settings_win.window());
     }
 
     /// Installs the winit focus-lost hook that auto-destroys the main window

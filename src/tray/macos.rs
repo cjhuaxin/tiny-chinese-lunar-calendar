@@ -3,12 +3,13 @@ use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
 use objc2::MainThreadMarker;
 use objc2_app_kit::{
-    NSAboutPanelOptionApplicationName, NSAboutPanelOptionApplicationVersion, NSAlert,
-    NSAlertStyle, NSApplication, NSCellImagePosition, NSEvent, NSEventMask, NSFont, NSImageScaling,
-    NSImageView, NSLayoutAttribute, NSScreen, NSStackView, NSTextAlignment, NSTextField,
-    NSUserInterfaceLayoutOrientation, NSView, NSWorkspace, NSWorkspaceDidWakeNotification,
+    NSAboutPanelOptionApplicationName, NSAboutPanelOptionApplicationVersion,
+    NSAboutPanelOptionCredits, NSApplication, NSCellImagePosition, NSEvent, NSEventMask, NSMenu,
+    NSScreen, NSView, NSWorkspace, NSWorkspaceDidWakeNotification,
 };
-use objc2_foundation::{NSArray, NSDictionary, NSEdgeInsets, NSNotification, NSOperationQueue, NSSize, NSString};
+use objc2_foundation::{
+    NSDictionary, NSAttributedString, NSNotification, NSOperationQueue, NSSize, NSString,
+};
 use std::mem;
 use std::ptr::NonNull;
 use tray_icon::TrayIcon;
@@ -16,90 +17,89 @@ use tray_icon::TrayIcon;
 /// tray-icon scales status item images to 18pt; bump to match standard menu bar icons.
 const MENU_BAR_ICON_HEIGHT_PT: f64 = 22.0;
 
+/// Brings the app to the foreground so panels and windows are not hidden behind other apps.
+pub fn activate_app() {
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+    #[allow(deprecated)]
+    NSApplication::sharedApplication(mtm).activateIgnoringOtherApps(true);
+}
+
+/// Raises a Slint/winit window above other applications.
+pub fn raise_slint_window(window: &slint::Window) {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    use slint::winit_030::WinitWindowAccessor;
+
+    activate_app();
+    window.with_winit_window(|winit_window| {
+        if let Ok(handle) = winit_window.window_handle() {
+            if let RawWindowHandle::AppKit(appkit) = handle.as_raw() {
+                let ns_view: &NSView = unsafe { appkit.ns_view.cast().as_ref() };
+                if let Some(ns_window) = ns_view.window() {
+                    ns_window.orderFrontRegardless();
+                    ns_window.makeKeyAndOrderFront(None);
+                }
+            }
+        }
+        winit_window.focus_window();
+    });
+}
+
+fn about_panel_string(value: &str) -> Retained<AnyObject> {
+    Retained::into_super(Retained::into_super(NSString::from_str(value)))
+}
+
+/// Shows the standard macOS About panel with custom primary/secondary text.
+/// Pass `hide_credits: true` to omit the credits button (update status dialogs).
+fn show_about_style_panel(primary: &str, secondary: &str, hide_credits: bool, mtm: MainThreadMarker) {
+    activate_app();
+
+    if hide_credits {
+        let keys = [
+            unsafe { NSAboutPanelOptionApplicationName },
+            unsafe { NSAboutPanelOptionApplicationVersion },
+            unsafe { NSAboutPanelOptionCredits },
+        ];
+        let empty_credits =
+            NSAttributedString::from_nsstring(&NSString::from_str(""));
+        let objects: [Retained<AnyObject>; 3] = [
+            about_panel_string(primary),
+            about_panel_string(secondary),
+            Retained::into_super(Retained::into_super(empty_credits)),
+        ];
+        let dict = NSDictionary::from_retained_objects(&keys, &objects);
+        unsafe {
+            NSApplication::sharedApplication(mtm).orderFrontStandardAboutPanelWithOptions(&dict);
+        }
+    } else {
+        let keys = [
+            unsafe { NSAboutPanelOptionApplicationName },
+            unsafe { NSAboutPanelOptionApplicationVersion },
+        ];
+        let objects: [Retained<AnyObject>; 2] = [
+            about_panel_string(primary),
+            about_panel_string(secondary),
+        ];
+        let dict = NSDictionary::from_retained_objects(&keys, &objects);
+        unsafe {
+            NSApplication::sharedApplication(mtm).orderFrontStandardAboutPanelWithOptions(&dict);
+        }
+    }
+}
+
 /// Shows the standard macOS About panel with the compile-time app version and
 /// `Credits.html` from the app bundle (clickable GitHub link).
 pub fn show_about_panel() {
     let Some(mtm) = MainThreadMarker::new() else {
         return;
     };
-
-    let keys = [
-        unsafe { NSAboutPanelOptionApplicationName },
-        unsafe { NSAboutPanelOptionApplicationVersion },
-    ];
-    let objects: [Retained<AnyObject>; 2] = [
-        Retained::into_super(Retained::into_super(NSString::from_str(
-            crate::settings::APP_NAME,
-        ))),
-        Retained::into_super(Retained::into_super(NSString::from_str(env!(
-            "CARGO_PKG_VERSION"
-        )))),
-    ];
-
-    let dict = NSDictionary::from_retained_objects(&keys, &objects);
-    unsafe {
-        NSApplication::sharedApplication(mtm).orderFrontStandardAboutPanelWithOptions(&dict);
-    }
-}
-
-fn centered_label(text: &str, font: Option<&NSFont>, mtm: MainThreadMarker) -> Retained<NSTextField> {
-    let label = NSTextField::labelWithString(&NSString::from_str(text), mtm);
-    label.setEditable(false);
-    label.setSelectable(false);
-    label.setBezeled(false);
-    label.setDrawsBackground(false);
-    label.setAlignment(NSTextAlignment::Center);
-    if let Some(cell) = label.cell() {
-        cell.setAlignment(NSTextAlignment::Center);
-    }
-    if let Some(font) = font {
-        label.setFont(Some(font));
-    }
-    label
-}
-
-fn app_icon_view(mtm: MainThreadMarker) -> Retained<NSImageView> {
-    let view = NSImageView::new(mtm);
-    if let Some(icon) = NSApplication::sharedApplication(mtm).applicationIconImage() {
-        icon.setSize(NSSize::new(56.0, 56.0));
-        view.setImage(Some(&icon));
-    }
-    view.setImageScaling(NSImageScaling::ScaleProportionallyUpOrDown);
-    view
-}
-
-fn centered_status_accessory(title: &str, subtitle: &str, mtm: MainThreadMarker) -> Retained<NSStackView> {
-    let title_font = NSFont::boldSystemFontOfSize(15.0);
-    let subtitle_font = NSFont::systemFontOfSize(13.0);
-
-    let icon = app_icon_view(mtm);
-    let title_label = centered_label(title, Some(&title_font), mtm);
-    let subtitle_label = centered_label(subtitle, Some(&subtitle_font), mtm);
-
-    let views: [&NSView; 3] = [icon.as_ref(), title_label.as_ref(), subtitle_label.as_ref()];
-    let views_array = NSArray::from_slice(&views);
-    let stack = NSStackView::stackViewWithViews(&views_array, mtm);
-    stack.setOrientation(NSUserInterfaceLayoutOrientation::Vertical);
-    stack.setAlignment(NSLayoutAttribute::CenterX);
-    stack.setSpacing(10.0);
-    stack.setEdgeInsets(NSEdgeInsets {
-        top: 12.0,
-        left: 16.0,
-        bottom: 4.0,
-        right: 16.0,
-    });
-    stack
-}
-
-fn show_status_alert(title: &str, subtitle: &str, mtm: MainThreadMarker) {
-    let alert = NSAlert::new(mtm);
-    alert.setMessageText(&NSString::from_str(""));
-    alert.setInformativeText(&NSString::from_str(""));
-    alert.setAlertStyle(NSAlertStyle::Informational);
-    alert.setAccessoryView(Some(&centered_status_accessory(title, subtitle, mtm)));
-    alert.addButtonWithTitle(&NSString::from_str("好"));
-    alert.layout();
-    alert.runModal();
+    show_about_style_panel(
+        crate::settings::APP_NAME,
+        env!("CARGO_PKG_VERSION"),
+        false,
+        mtm,
+    );
 }
 
 /// Shows a concise, centered "already up to date" dialog.
@@ -107,7 +107,7 @@ pub fn show_up_to_date_alert(version: &str) {
     let Some(mtm) = MainThreadMarker::new() else {
         return;
     };
-    show_status_alert("已是最新版本", &format!("v{version}"), mtm);
+    show_about_style_panel("已是最新版本", version, true, mtm);
 }
 
 /// Shows a concise error dialog when the update feed cannot be fetched.
@@ -115,7 +115,28 @@ pub fn show_update_error_alert() {
     let Some(mtm) = MainThreadMarker::new() else {
         return;
     };
-    show_status_alert("无法检查更新", "请稍后再试", mtm);
+    show_about_style_panel("无法检查更新", "请稍后再试", true, mtm);
+}
+
+/// Forces tray menu icons into monochrome template rendering, matching the system Quit item.
+pub fn apply_tray_menu_icon_style(menu: &tray_icon::menu::Menu) {
+    use tray_icon::menu::ContextMenu;
+
+    let ns_menu_ptr = menu.ns_menu();
+    if ns_menu_ptr.is_null() {
+        return;
+    }
+
+    unsafe {
+        let ns_menu: &NSMenu = &*ns_menu_ptr.cast();
+        for item in ns_menu.itemArray().iter() {
+            if let Some(image) = item.image() {
+                image.setTemplate(true);
+                image.setSize(NSSize::new(16.0, 16.0));
+                item.setImage(Some(&image));
+            }
+        }
+    }
 }
 
 pub fn observe_system_wake(handler: impl Fn() + Send + Sync + 'static) {
