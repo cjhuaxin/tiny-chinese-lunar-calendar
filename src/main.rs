@@ -7,6 +7,8 @@ mod services;
 mod settings;
 mod textfit;
 mod tray;
+#[cfg(target_os = "macos")]
+mod updater;
 
 slint::include_modules!();
 
@@ -22,6 +24,7 @@ use crate::services::holiday;
 
 const SETTINGS_MENU_ID: &str = "settings";
 const ABOUT_MENU_ID: &str = "about";
+const CHECK_UPDATE_MENU_ID: &str = "check_update";
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Destroy the winit window (and the femtovg GL context with its glyph
@@ -102,6 +105,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             } else if event.id.as_ref() == ABOUT_MENU_ID {
                 #[cfg(target_os = "macos")]
                 tray::macos::show_about_panel();
+            } else if event.id.as_ref() == CHECK_UPDATE_MENU_ID {
+                #[cfg(target_os = "macos")]
+                updater::check_for_updates();
             }
         });
     }));
@@ -133,6 +139,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             });
         });
         tray::icon::start_date_watch();
+
+        #[cfg(target_os = "macos")]
+        {
+            updater::init();
+            updater::check_in_background();
+        }
     });
 
     // Debug aid: show the main window pinned at startup (TCLC_SHOW=1 cargo run).
@@ -202,10 +214,12 @@ fn create_tray() -> Result<(), Box<dyn std::error::Error>> {
     let menu = Menu::new();
     let settings_item = MenuItem::with_id(SETTINGS_MENU_ID, "设置", true, None);
     let about_item = MenuItem::with_id(ABOUT_MENU_ID, "关于小小万年历", true, None);
+    let check_update_item = MenuItem::with_id(CHECK_UPDATE_MENU_ID, "检查更新", true, None);
     let quit_item = PredefinedMenuItem::quit(Some("退出"));
     menu.append_items(&[
         &settings_item,
         &about_item,
+        &check_update_item,
         &PredefinedMenuItem::separator(),
         &quit_item,
     ])?;

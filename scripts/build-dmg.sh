@@ -40,7 +40,7 @@ if [[ "$SKIP_APP_BUILD" == true && -n "${REQUESTED_VERSION:-${VERSION:-}}" ]]; t
 fi
 
 VERSION="$(resolve_version "$REQUESTED_VERSION")"
-DMG_PATH="dist/${APP_NAME}-${VERSION}.dmg"
+DMG_PATH="$(release_dmg_path "$VERSION")"
 
 if [[ "$SKIP_APP_BUILD" == false ]]; then
     bash scripts/build-app.sh ${REQUESTED_VERSION:+--version "$REQUESTED_VERSION"}

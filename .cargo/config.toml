@@ -1,0 +1,2 @@
+[env]
+SPARKLE_FRAMEWORK_DIR = { value = ".", relative = true }

@@ -1,3 +1,6 @@
 /target
 .DS_Store
 /dist
+/Sparkle.framework
+/sparkle-bin
+/sparkle_private_key.txt

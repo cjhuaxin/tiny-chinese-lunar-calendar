@@ -10,7 +10,9 @@ APP_NAME="小小万年历"
 BIN_NAME="tiny-chinese-lunar-calendar"
 BUNDLE_ID="com.cjhuaxin.tclc"
 GITHUB_REPO="https://github.com/cjhuaxin/tiny-chinese-lunar-calendar"
-BUILD_NUMBER="${BUILD_NUMBER:-1}"
+APPCAST_URL="https://raw.githubusercontent.com/cjhuaxin/tiny-chinese-lunar-calendar/main/appcast/appcast.xml"
+SPARKLE_PUBLIC_KEY_FILE="appcast/sparkle_public_key.txt"
+SPARKLE_FRAMEWORK="Sparkle.framework"
 
 REQUESTED_VERSION=""
 while [[ $# -gt 0 ]]; do
@@ -32,16 +34,31 @@ while [[ $# -gt 0 ]]; do
 done
 
 VERSION="$(resolve_version "$REQUESTED_VERSION")"
+BUILD_NUMBER="${BUILD_NUMBER:-$(semver_to_build_number "$VERSION")}"
 
-CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$PWD/target}" cargo build --release
+if [[ ! -d "$SPARKLE_FRAMEWORK" ]]; then
+    echo "error: $SPARKLE_FRAMEWORK not found. Run: scripts/download-sparkle.sh" >&2
+    exit 1
+fi
+
+if [[ ! -f "$SPARKLE_PUBLIC_KEY_FILE" ]]; then
+    echo "error: $SPARKLE_PUBLIC_KEY_FILE not found. Run: ./sparkle-bin/generate_keys" >&2
+    exit 1
+fi
+
+SPARKLE_PUBLIC_KEY="$(tr -d '[:space:]' < "$SPARKLE_PUBLIC_KEY_FILE")"
+
+CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$PWD/target}" SPARKLE_FRAMEWORK_DIR="$PWD" cargo build --release
 
 TARGET_DIR="${CARGO_TARGET_DIR:-$PWD/target}"
 APP_DIR="dist/${APP_NAME}.app"
 
 rm -rf "$APP_DIR"
-mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
+mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources" "$APP_DIR/Contents/Frameworks"
 
 cp "$TARGET_DIR/release/$BIN_NAME" "$APP_DIR/Contents/MacOS/$BIN_NAME"
+cp -R "$SPARKLE_FRAMEWORK" "$APP_DIR/Contents/Frameworks/"
+install_name_tool -add_rpath "@executable_path/../Frameworks" "$APP_DIR/Contents/MacOS/$BIN_NAME" 2>/dev/null || true
 cp assets/icon/icon.icns "$APP_DIR/Contents/Resources/icon.icns"
 
 cat > "$APP_DIR/Contents/Resources/Credits.html" <<EOF
@@ -97,10 +114,17 @@ cat > "$APP_DIR/Contents/Info.plist" <<PLIST
     <true/>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <key>SUFeedURL</key>
+    <string>${APPCAST_URL}</string>
+    <key>SUPublicEDKey</key>
+    <string>${SPARKLE_PUBLIC_KEY}</string>
+    <key>SUEnableAutomaticChecks</key>
+    <true/>
 </dict>
 </plist>
 PLIST
 
+codesign --force --sign - "$APP_DIR/Contents/Frameworks/Sparkle.framework"
 codesign --force --deep --sign - "$APP_DIR"
 
-echo "Built $APP_DIR (version $VERSION)"
+echo "Built $APP_DIR (version $VERSION, build $BUILD_NUMBER)"
