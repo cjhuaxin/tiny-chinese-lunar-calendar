@@ -14,13 +14,14 @@ use std::cell::Cell;
 use std::time::Duration;
 
 use slint::winit_030::winit;
-use tray_icon::menu::{AboutMetadata, Menu, MenuEvent, MenuItem, PredefinedMenuItem};
+use tray_icon::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tray_icon::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 
 use crate::app::{install_app, with_app, App};
 use crate::services::holiday;
 
 const SETTINGS_MENU_ID: &str = "settings";
+const ABOUT_MENU_ID: &str = "about";
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Destroy the winit window (and the femtovg GL context with its glyph
@@ -98,6 +99,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let _ = slint::invoke_from_event_loop(move || {
             if event.id.as_ref() == SETTINGS_MENU_ID {
                 with_app(|app| app.show_settings());
+            } else if event.id.as_ref() == ABOUT_MENU_ID {
+                #[cfg(target_os = "macos")]
+                tray::macos::show_about_panel();
             }
         });
     }));
@@ -197,14 +201,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn create_tray() -> Result<(), Box<dyn std::error::Error>> {
     let menu = Menu::new();
     let settings_item = MenuItem::with_id(SETTINGS_MENU_ID, "设置", true, None);
-    let about_item = PredefinedMenuItem::about(
-        Some("关于小小万年历"),
-        Some(AboutMetadata {
-            name: Some(settings::APP_NAME.to_string()),
-            version: Some(env!("CARGO_PKG_VERSION").to_string()),
-            ..Default::default()
-        }),
-    );
+    let about_item = MenuItem::with_id(ABOUT_MENU_ID, "关于小小万年历", true, None);
     let quit_item = PredefinedMenuItem::quit(Some("退出"));
     menu.append_items(&[
         &settings_item,

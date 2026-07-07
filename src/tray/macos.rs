@@ -1,16 +1,45 @@
 use block2::RcBlock;
+use objc2::rc::Retained;
+use objc2::runtime::AnyObject;
 use objc2::MainThreadMarker;
 use objc2_app_kit::{
+    NSAboutPanelOptionApplicationName, NSAboutPanelOptionApplicationVersion, NSApplication,
     NSCellImagePosition, NSEvent, NSEventMask, NSScreen, NSWorkspace,
     NSWorkspaceDidWakeNotification,
 };
-use objc2_foundation::{NSNotification, NSOperationQueue, NSSize};
+use objc2_foundation::{NSDictionary, NSNotification, NSOperationQueue, NSSize, NSString};
 use std::mem;
 use std::ptr::NonNull;
 use tray_icon::TrayIcon;
 
 /// tray-icon scales status item images to 18pt; bump to match standard menu bar icons.
 const MENU_BAR_ICON_HEIGHT_PT: f64 = 22.0;
+
+/// Shows the standard macOS About panel with the compile-time app version and
+/// `Credits.html` from the app bundle (clickable GitHub link).
+pub fn show_about_panel() {
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+
+    let keys = [
+        unsafe { NSAboutPanelOptionApplicationName },
+        unsafe { NSAboutPanelOptionApplicationVersion },
+    ];
+    let objects: [Retained<AnyObject>; 2] = [
+        Retained::into_super(Retained::into_super(NSString::from_str(
+            crate::settings::APP_NAME,
+        ))),
+        Retained::into_super(Retained::into_super(NSString::from_str(env!(
+            "CARGO_PKG_VERSION"
+        )))),
+    ];
+
+    let dict = NSDictionary::from_retained_objects(&keys, &objects);
+    unsafe {
+        NSApplication::sharedApplication(mtm).orderFrontStandardAboutPanelWithOptions(&dict);
+    }
+}
 
 pub fn observe_system_wake(handler: impl Fn() + Send + Sync + 'static) {
     let block = RcBlock::new(move |_notification: NonNull<NSNotification>| {

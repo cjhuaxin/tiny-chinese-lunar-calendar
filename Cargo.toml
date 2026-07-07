@@ -1,9 +1,11 @@
 [package]
 name = "tiny-chinese-lunar-calendar"
-version = "0.1.1"
+version = "0.1.2"
 description = "小小万年历 - macOS menu bar lunar calendar (Slint)"
 authors = ["cjhuaxin"]
 edition = "2021"
+homepage = "https://github.com/cjhuaxin/tiny-chinese-lunar-calendar"
+repository = "https://github.com/cjhuaxin/tiny-chinese-lunar-calendar"
 
 [dependencies]
 # NOTE: no "accessibility" feature: the accesskit adapter keeps a reference to
