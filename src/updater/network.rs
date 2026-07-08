@@ -8,7 +8,7 @@ use objc2::runtime::AnyObject;
 use objc2::MainThreadMarker;
 use objc2_foundation::{NSDictionary, NSBundle, NSNumber, NSString, NSURLSessionConfiguration};
 
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const PROXY_PROBE_TIMEOUT: Duration = Duration::from_secs(2);
 const PROXY_HOST: &str = "127.0.0.1";
 const PROXY_PORT: u16 = 7890;
@@ -123,7 +123,7 @@ pub fn prepare_network_for_sparkle() {
         return;
     }
 
-    eprintln!("updater: connection to {host}:{port} timed out after 10s");
+    eprintln!("updater: connection to {host}:{port} timed out after {}s", CONNECT_TIMEOUT.as_secs());
 
     if !can_connect(PROXY_HOST, PROXY_PORT, PROXY_PROBE_TIMEOUT) {
         eprintln!("updater: local proxy {PROXY_HOST}:{PROXY_PORT} is not available");

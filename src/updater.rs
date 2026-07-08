@@ -3,20 +3,49 @@
 #[cfg(target_os = "macos")]
 mod network;
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::time::Duration;
 
 use once_cell::sync::OnceCell;
 use sparklers::{Event, Sparkle, SparkleConfig};
 
 static SPARKLE: OnceCell<Sparkle> = OnceCell::new();
-static USER_INITIATED_CHECK: AtomicBool = AtomicBool::new(false);
+/// Set when the user chose "检查更新" and we owe them a visible outcome.
+static USER_AWAITING_FEEDBACK: AtomicBool = AtomicBool::new(false);
+static USER_CHECK_GENERATION: AtomicU64 = AtomicU64::new(0);
 
-fn take_user_initiated_check() -> bool {
-    USER_INITIATED_CHECK.swap(false, Ordering::SeqCst)
+fn user_awaiting_feedback() -> bool {
+    USER_AWAITING_FEEDBACK.load(Ordering::SeqCst)
+}
+
+fn clear_user_feedback() {
+    USER_AWAITING_FEEDBACK.store(false, Ordering::SeqCst);
 }
 
 fn show_on_main_thread(f: impl FnOnce() + Send + 'static) {
     let _ = slint::invoke_from_event_loop(f);
+}
+
+fn finish_user_check_with(f: impl FnOnce() + Send + 'static) {
+    if !user_awaiting_feedback() {
+        return;
+    }
+    clear_user_feedback();
+    show_on_main_thread(f);
+}
+
+fn arm_user_check_timeout(generation: u64) {
+    slint::Timer::single_shot(Duration::from_secs(30), move || {
+        if USER_CHECK_GENERATION.load(Ordering::SeqCst) != generation {
+            return;
+        }
+        if USER_AWAITING_FEEDBACK.swap(false, Ordering::SeqCst) {
+            show_on_main_thread(|| {
+                #[cfg(target_os = "macos")]
+                crate::tray::macos::show_update_error_alert();
+            });
+        }
+    });
 }
 
 #[cfg(target_os = "macos")]
@@ -28,6 +57,9 @@ pub(crate) fn sparkle_feed_url() -> Option<String> {
 
 /// Initializes the Sparkle updater. No-op when not running inside a .app bundle.
 pub fn init() {
+    #[cfg(target_os = "macos")]
+    network::prepare_network_for_sparkle();
+
     let config = SparkleConfig {
         version: env!("CARGO_PKG_VERSION").to_string(),
     };
@@ -42,17 +74,16 @@ pub fn init() {
     sparkle.set_event_callback(|event| match event {
         Event::DidNotFindUpdate => {
             eprintln!("updater: no update available");
-            if take_user_initiated_check() {
+            finish_user_check_with(move || {
                 let version = env!("CARGO_PKG_VERSION").to_string();
-                show_on_main_thread(move || {
-                    #[cfg(target_os = "macos")]
-                    crate::tray::macos::show_up_to_date_alert(&version);
-                });
-            }
+                #[cfg(target_os = "macos")]
+                crate::tray::macos::show_up_to_date_alert(&version);
+            });
         }
         Event::DidFindValidUpdate { item } => {
             eprintln!("updater: update available: {}", item.version());
-            if take_user_initiated_check() {
+            if user_awaiting_feedback() {
+                clear_user_feedback();
                 if let Some(sparkle) = SPARKLE.get() {
                     let _ = sparkle.check_for_updates();
                 }
@@ -60,23 +91,23 @@ pub fn init() {
         }
         Event::DidAbortWithError { error } => {
             eprintln!("updater: error: {}", error.message());
-            if take_user_initiated_check() {
-                show_on_main_thread(|| {
+            finish_user_check_with(|| {
+                #[cfg(target_os = "macos")]
+                crate::tray::macos::show_update_error_alert();
+            });
+        }
+        Event::DidFinishUpdateCycle { error, .. } => {
+            if let Some(error) = error {
+                eprintln!("updater: update cycle finished with error: {}", error.message());
+                finish_user_check_with(|| {
                     #[cfg(target_os = "macos")]
                     crate::tray::macos::show_update_error_alert();
                 });
             }
         }
-        Event::DidFinishUpdateCycle { error, .. } => {
-            if let Some(error) = error {
-                eprintln!("updater: update cycle finished with error: {}", error.message());
-                if take_user_initiated_check() {
-                    show_on_main_thread(|| {
-                        #[cfg(target_os = "macos")]
-                        crate::tray::macos::show_update_error_alert();
-                    });
-                }
-            }
+        Event::UserDidCancelDownload => {
+            eprintln!("updater: user cancelled download");
+            clear_user_feedback();
         }
         _ => {}
     });
@@ -118,7 +149,12 @@ pub fn check_in_background() {
 /// Triggers a user-initiated update check with a custom status dialog.
 pub fn check_for_updates() {
     if SPARKLE.get().is_some() {
-        USER_INITIATED_CHECK.store(true, Ordering::SeqCst);
+        let generation = USER_CHECK_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+        USER_AWAITING_FEEDBACK.store(true, Ordering::SeqCst);
+        arm_user_check_timeout(generation);
+        // Show immediately on the main thread (menu handler already runs on the Slint loop).
+        #[cfg(target_os = "macos")]
+        crate::tray::macos::show_checking_update_alert();
         run_sparkle_check(true);
     } else {
         eprintln!("updater: disabled (not running inside a macOS app bundle)");

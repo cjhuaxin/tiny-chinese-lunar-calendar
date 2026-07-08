@@ -115,7 +115,15 @@ pub fn show_update_error_alert() {
     let Some(mtm) = MainThreadMarker::new() else {
         return;
     };
-    show_about_style_panel("无法检查更新", "请稍后再试", true, mtm);
+    show_about_style_panel("无法检查更新", "网络连接失败，请检查网络或代理", true, mtm);
+}
+
+/// Shows immediate feedback while Sparkle fetches the appcast.
+pub fn show_checking_update_alert() {
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+    show_about_style_panel("正在检查更新", "请稍候…", true, mtm);
 }
 
 /// Forces tray menu icons into monochrome template rendering, matching the system Quit item.
