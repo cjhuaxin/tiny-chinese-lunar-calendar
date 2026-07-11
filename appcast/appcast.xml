@@ -2,14 +2,14 @@
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
     <channel>
         <title>小小万年历</title>
-        <link>https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/releases/tag/v0.3.0</link>
+        <link>https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/releases/tag/v0.3.1</link>
         <description>Most recent updates to 小小万年历</description>
         <language>zh-cn</language>
         <item>
-            <title>Version 0.3.0</title>
-            <link>https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/releases/tag/v0.3.0</link>
-            <sparkle:version>233</sparkle:version>
-            <sparkle:shortVersionString>0.3.0</sparkle:shortVersionString>
+            <title>Version 0.3.1</title>
+            <link>https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/releases/tag/v0.3.1</link>
+            <sparkle:version>235</sparkle:version>
+            <sparkle:shortVersionString>0.3.1</sparkle:shortVersionString>
             <description><![CDATA[<!DOCTYPE html><html><head><meta charset="utf-8"><style>
 body {
     font-family: -apple-system, "PingFang SC", sans-serif;
@@ -40,39 +40,29 @@ hr { border: none; border-top: 1px solid rgba(61, 46, 31, 0.15); margin: 14px 0;
     hr { border-top-color: rgba(232, 226, 216, 0.2); }
 }
 </style></head><body>
-<h2>✨ 小小万年历 0.3.0</h2>
-<p>本次带来全新的天气模块：打开日历,今天的天气一目了然。</p>
+<h2>✨ 小小万年历 0.3.1</h2>
+<p>更新体验专项优化：国内检查更新、下载更新包全面提速。</p>
 <hr>
-<h3>🌤 今日天气</h3>
+<h3>🚀 更新加速</h3>
 <ul>
-<li>今日栏新增天气卡片：城市、当前温度、天气图标、体感温度与高低温区间</li>
-<li>定位优先使用系统定位（CoreLocation）,更精准;IP 兜底结果短期缓存,不再"漂"到别的城市</li>
-<li>城市名支持全国省市区县,与日历同款楷体渲染</li>
-<li>新增「显示天气」开关（默认开启）,关闭后完全不请求定位与天气服务</li>
-</ul>
-<h3>🛠 体验优化</h3>
-<ul>
-<li>「关于」窗口即点即开,不再转圈等待</li>
-<li>设置窗口左上角新增关闭按钮</li>
-<li>更新弹窗直接展示更新内容,无需跳转网页</li>
-<li>构建号改用 git 提交数,每次构建可追溯</li>
+<li>更新源迁移至全球 CDN,国内检查更新不再超时</li>
+<li>更新包下载同步加速,秒级完成</li>
+<li>GitHub Releases 保留完整镜像,任何一边故障均不影响升级</li>
 </ul>
 <hr>
 <h3>📦 安装与升级</h3>
-<ol>
-<li>1. 下载下方 <strong>xiaoxiao-wannianli-0.3.0.dmg</strong></li>
-<li>2. 打开 DMG,将应用拖入「应用程序」文件夹</li>
-<li>3. 首次打开日历时允许定位权限,即可看到本地天气</li>
-</ol>
-<p>⚠️ 因构建号规则调整,<strong>0.2.5 及更早版本需手动下载本版安装</strong>,后续即可恢复自动更新。</p>
+<ul>
+<li><strong>0.3.0 用户</strong>:点击菜单栏图标 → 检查更新,即可自动升级</li>
+<li><strong>0.2.5 及更早版本</strong>:请手动下载下方 <strong>xiaoxiao-wannianli-0.3.1.dmg</strong> 安装,之后即可恢复自动更新</li>
+</ul>
 <hr>
-<p><strong>完整变更</strong>: <a href="https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/compare/v0.2.5...v0.3.0">https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/compare/v0.2.5...v0.3.0</a></p>
+<p><strong>完整变更</strong>: <a href="https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/compare/v0.3.0...v0.3.1">https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/compare/v0.3.0...v0.3.1</a></p>
 </body></html>]]></description>
-            <pubDate>Sat, 11 Jul 2026 06:00:21 +0000</pubDate>
+            <pubDate>Sat, 11 Jul 2026 06:51:04 +0000</pubDate>
             <enclosure
-                url="https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/releases/download/v0.3.0/xiaoxiao-wannianli-0.3.0.zip"
-                sparkle:edSignature="wWykXX1R8CbaXTVDPu5g0xBfJPCJ1E2eLvxG+pOJX5f9eOCoxfyQZHlJ2ExIjYH4C8A3y7w4cwdDZSLIxHs4Bg=="
-                length="10003966"
+                url="https://tclc-updates.cjhuaxin.cc/releases/xiaoxiao-wannianli-0.3.1.zip"
+                sparkle:edSignature="ZfLoWbVWWBLfjqHLNVL5y2WMKbnli0vzciSBH2wK7tFXhJX75pbsWYU6wVfPBGx3cf0NSZlkMBkOQi2SAYs1Ag=="
+                length="10005502"
                 type="application/octet-stream" />
         </item>
     </channel>
