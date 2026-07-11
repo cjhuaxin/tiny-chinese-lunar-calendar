@@ -126,6 +126,22 @@ pub fn show_checking_update_alert() {
     show_about_style_panel("正在检查更新", "请稍候…", true, mtm);
 }
 
+/// Closes the shared About panel used for update status dialogs, e.g. when
+/// handing off from "正在检查更新" to Sparkle's own update window.
+pub fn close_update_status_panel() {
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+    let app = NSApplication::sharedApplication(mtm);
+    for window in app.windows().iter() {
+        // The standard About panel is a private NSAboutPanel subclass.
+        let is_about = window.class().name().to_str().is_ok_and(|n| n.contains("About"));
+        if is_about {
+            window.orderOut(None);
+        }
+    }
+}
+
 /// Forces tray menu icons into monochrome template rendering, matching the system Quit item.
 pub fn apply_tray_menu_icon_style(menu: &tray_icon::menu::Menu) {
     use tray_icon::menu::ContextMenu;

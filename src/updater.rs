@@ -13,6 +13,11 @@ static SPARKLE: OnceCell<Sparkle> = OnceCell::new();
 /// Set when the user chose "检查更新" and we owe them a visible outcome.
 static USER_AWAITING_FEEDBACK: AtomicBool = AtomicBool::new(false);
 static USER_CHECK_GENERATION: AtomicU64 = AtomicU64::new(0);
+/// Set when a user-initiated information check found an update and we must
+/// hand off to Sparkle's own UI once the probe session finishes. Starting the
+/// UI check from inside the DidFindValidUpdate delegate callback aborts with
+/// "check already in progress" and leaves our status dialog stuck.
+static PENDING_UI_HANDOFF: AtomicBool = AtomicBool::new(false);
 
 fn user_awaiting_feedback() -> bool {
     USER_AWAITING_FEEDBACK.load(Ordering::SeqCst)
@@ -84,13 +89,16 @@ pub fn init() {
             eprintln!("updater: update available: {}", item.version());
             if user_awaiting_feedback() {
                 clear_user_feedback();
-                if let Some(sparkle) = SPARKLE.get() {
-                    let _ = sparkle.check_for_updates();
-                }
+                // Don't start the UI check here: this callback runs inside
+                // the still-active information-check session and Sparkle
+                // would abort the new session as "already in progress".
+                // Defer to DidFinishUpdateCycle.
+                PENDING_UI_HANDOFF.store(true, Ordering::SeqCst);
             }
         }
         Event::DidAbortWithError { error } => {
             eprintln!("updater: error: {}", error.message());
+            PENDING_UI_HANDOFF.store(false, Ordering::SeqCst);
             finish_user_check_with(|| {
                 #[cfg(target_os = "macos")]
                 crate::tray::macos::show_update_error_alert();
@@ -99,9 +107,29 @@ pub fn init() {
         Event::DidFinishUpdateCycle { error, .. } => {
             if let Some(error) = error {
                 eprintln!("updater: update cycle finished with error: {}", error.message());
-                finish_user_check_with(|| {
+                let pending = PENDING_UI_HANDOFF.swap(false, Ordering::SeqCst);
+                if pending {
+                    // The probe found an update but the cycle still errored;
+                    // surface it instead of leaving the status dialog open.
+                    show_on_main_thread(|| {
+                        #[cfg(target_os = "macos")]
+                        crate::tray::macos::show_update_error_alert();
+                    });
+                } else {
+                    finish_user_check_with(|| {
+                        #[cfg(target_os = "macos")]
+                        crate::tray::macos::show_update_error_alert();
+                    });
+                }
+            } else if PENDING_UI_HANDOFF.swap(false, Ordering::SeqCst) {
+                // Information check finished cleanly with an update found:
+                // close our status dialog and let Sparkle's UI take over.
+                show_on_main_thread(|| {
                     #[cfg(target_os = "macos")]
-                    crate::tray::macos::show_update_error_alert();
+                    crate::tray::macos::close_update_status_panel();
+                    if let Some(sparkle) = SPARKLE.get() {
+                        let _ = sparkle.check_for_updates();
+                    }
                 });
             }
         }
@@ -150,6 +178,7 @@ pub fn check_in_background() {
 pub fn check_for_updates() {
     if SPARKLE.get().is_some() {
         let generation = USER_CHECK_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+        PENDING_UI_HANDOFF.store(false, Ordering::SeqCst);
         USER_AWAITING_FEEDBACK.store(true, Ordering::SeqCst);
         arm_user_check_timeout(generation);
         // Show immediately on the main thread (menu handler already runs on the Slint loop).
