@@ -315,6 +315,7 @@ impl App {
                     } else {
                         CalendarLabelPriority::SolarTerm
                     },
+                    show_weather: win.get_draft_show_weather(),
                 };
                 if let Err(err) = save_settings(&new_settings) {
                     eprintln!("failed to save settings: {err}");
@@ -328,6 +329,9 @@ impl App {
                 with_app(move |app| {
                     if let Some(main) = app.main_handle() {
                         refresh_all(&main, &state);
+                        // Weather visibility may have been toggled; either
+                        // hide the badge or (re)start the fetch chain.
+                        app.ensure_weather_for_main(&main);
                     }
                 });
             });
@@ -446,6 +450,7 @@ impl App {
             .set_draft_show_intl(settings.show_international_festivals);
         self.settings_win
             .set_draft_launch_login(settings.launch_at_login);
+        self.settings_win.set_draft_show_weather(settings.show_weather);
         self.settings_win.set_draft_priority_intl(matches!(
             settings.calendar_label_priority,
             CalendarLabelPriority::InternationalFestival
@@ -463,7 +468,14 @@ impl App {
     }
 
     /// Fetches location + weather when the calendar popover opens.
+    /// Disabled entirely (no location request, no API calls) when the user
+    /// turned the weather display off in settings.
     fn ensure_weather_for_main(self: &Rc<Self>, main: &MainWindow) {
+        if !self.state.settings.borrow().show_weather {
+            main.set_weather_visible(false);
+            return;
+        }
+
         weather::set_loading();
         weather::apply_weather_to_window(main);
 

@@ -40,12 +40,12 @@ resolve_version() {
     cargo pkgid | sed 's/.*@//'
 }
 
-# Maps semver X.Y.Z to a monotonically increasing CFBundleVersion / sparkle:version.
-semver_to_build_number() {
-    local v="$1"
-    local major minor patch
-    IFS='.' read -r major minor patch <<< "$v"
-    echo $(( major * 10000 + minor * 100 + patch ))
+# CFBundleVersion / sparkle:version: the git commit count, incrementing with
+# every commit independently of the marketing version.
+# NOTE: this rebased the build number below historical releases (v0.2.5
+# shipped as build 205); installs from those builds won't see Sparkle updates.
+build_number() {
+    git rev-list --count HEAD 2>/dev/null || echo 0
 }
 
 # Returns the repository's default branch (e.g. main).

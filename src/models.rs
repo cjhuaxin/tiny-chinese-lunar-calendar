@@ -18,9 +18,15 @@ pub struct AppSettings {
     pub launch_at_login: bool,
     #[serde(default)]
     pub calendar_label_priority: CalendarLabelPriority,
+    #[serde(default = "default_show_weather")]
+    pub show_weather: bool,
 }
 
 fn default_show_international_festivals() -> bool {
+    true
+}
+
+fn default_show_weather() -> bool {
     true
 }
 
@@ -31,6 +37,7 @@ impl Default for AppSettings {
             show_international_festivals: true,
             launch_at_login: false,
             calendar_label_priority: CalendarLabelPriority::SolarTerm,
+            show_weather: true,
         }
     }
 }

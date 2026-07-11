@@ -215,7 +215,11 @@ export component WeatherBadge inherits Rectangle {
     in property <bool> show-weather: true;
 
     visible: root.show-weather;
-    width: root.has-data ? root.content-w * root.tscale : 72px;
+    // Collapses to zero width when hidden: visible:false alone would still
+    // reserve layout space.
+    width: !root.show-weather ? 0px
+        : root.has-data ? root.content-w * root.tscale
+        : 72px;
     horizontal-stretch: 0;
 
     property <bool> has-data: root.temp != "--" && root.temp != "";

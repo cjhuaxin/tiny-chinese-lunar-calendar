@@ -34,7 +34,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 VERSION="$(resolve_version "$REQUESTED_VERSION")"
-BUILD_NUMBER="${BUILD_NUMBER:-$(semver_to_build_number "$VERSION")}"
+BUILD_NUMBER="${BUILD_NUMBER:-$(build_number)}"
 
 if [[ ! -d "$SPARKLE_FRAMEWORK" ]]; then
     echo "error: $SPARKLE_FRAMEWORK not found. Run: scripts/download-sparkle.sh" >&2
@@ -72,26 +72,16 @@ cp -R "$SPARKLE_FRAMEWORK" "$APP_DIR/Contents/Frameworks/"
 install_name_tool -add_rpath "@executable_path/../Frameworks" "$APP_DIR/Contents/MacOS/$BIN_NAME" 2>/dev/null || true
 cp assets/icon/icon.icns "$APP_DIR/Contents/Resources/icon.icns"
 
-cat > "$APP_DIR/Contents/Resources/Credits.html" <<EOF
-<html>
-<head>
-<meta charset="UTF-8">
-<style>
-body {
-    font-family: -apple-system, "PingFang SC", sans-serif;
-    font-size: 11px;
-    text-align: center;
-    color: #666;
-    margin: 0;
-    padding: 0;
+# Credits.rtf, not Credits.html: the About panel imports HTML credits through
+# WebKit synchronously on the main thread, which beachballs for 1-2s on first
+# open. RTF (with a hyperlink field) renders instantly.
+# \u39033?\u30446?\u20027?\u39029? = 项目主页
+cat > "$APP_DIR/Contents/Resources/Credits.rtf" <<EOF
+{\rtf1\ansi\uc1
+{\colortbl;\red102\green102\blue102;\red0\green102\blue204;}
+\qc\fs22\cf1
+{\field{\*\fldinst{HYPERLINK "${GITHUB_REPO}"}}{\fldrslt\cf2 GitHub \u39033?\u30446?\u20027?\u39029?}}
 }
-a { color: #0066cc; }
-</style>
-</head>
-<body>
-<p><a href="${GITHUB_REPO}">GitHub 项目主页</a></p>
-</body>
-</html>
 EOF
 
 cat > "$APP_DIR/Contents/Info.plist" <<PLIST

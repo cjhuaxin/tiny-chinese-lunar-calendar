@@ -8,7 +8,15 @@ source scripts/lib/version.sh
 
 VERSION="${1:-$(get_version)}"
 TAG="v${VERSION}"
-BUILD_NUMBER="$(semver_to_build_number "$VERSION")"
+# sparkle:version must match the CFBundleVersion baked into the shipped app;
+# read it from the built bundle when available (the commit count may have
+# moved on since the app was built).
+BUILT_PLIST="dist/小小万年历.app/Contents/Info.plist"
+if [[ -f "$BUILT_PLIST" ]]; then
+    BUILD_NUMBER="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$BUILT_PLIST")"
+else
+    BUILD_NUMBER="$(build_number)"
+fi
 ZIP_NAME="${RELEASE_DMG_NAME}-${VERSION}.zip"
 ZIP_PATH="dist/${ZIP_NAME}"
 APPCAST_FILE="appcast/appcast.xml"
@@ -44,6 +52,16 @@ fi
 
 PUB_DATE="$(date -u '+%a, %d %b %Y %H:%M:%S +0000')"
 
+# Embed the release notes as HTML in <description> so Sparkle shows a clean
+# notes view instead of loading the full GitHub release page.
+if [[ -f "$NOTES_FILE" ]]; then
+    RELEASE_NOTES_HTML="$(python3 scripts/lib/md2html.py < "$NOTES_FILE")"
+    RELEASE_NOTES_BLOCK="<description><![CDATA[${RELEASE_NOTES_HTML}]]></description>"
+else
+    echo "warning: $NOTES_FILE not found; falling back to release page link" >&2
+    RELEASE_NOTES_BLOCK="<sparkle:releaseNotesLink>${RELEASE_URL}</sparkle:releaseNotesLink>"
+fi
+
 mkdir -p appcast
 cat > "$APPCAST_FILE" <<EOF
 <?xml version="1.0" encoding="utf-8"?>
@@ -58,7 +76,7 @@ cat > "$APPCAST_FILE" <<EOF
             <link>${RELEASE_URL}</link>
             <sparkle:version>${BUILD_NUMBER}</sparkle:version>
             <sparkle:shortVersionString>${VERSION}</sparkle:shortVersionString>
-            <sparkle:releaseNotesLink>${RELEASE_URL}</sparkle:releaseNotesLink>
+            ${RELEASE_NOTES_BLOCK}
             <pubDate>${PUB_DATE}</pubDate>
             <enclosure
                 url="${DOWNLOAD_URL}"

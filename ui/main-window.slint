@@ -194,8 +194,9 @@ export component MainWindow inherits Window {
                     HorizontalLayout {
                         // Pin glyph is inset ~5px in its 24px button, so 10px
                         // here reads as the same visual gap as the 14px
-                        // between the date and lunar columns.
-                        spacing: 10px;
+                        // between the date and lunar columns. Collapses with
+                        // the badge when the weather display is off.
+                        spacing: root.weather-visible ? 10px : 0px;
                         horizontal-stretch: 0;
 
                         WeatherBadge {
