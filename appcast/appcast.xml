@@ -8,7 +8,7 @@
         <item>
             <title>Version 0.3.0</title>
             <link>https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/releases/tag/v0.3.0</link>
-            <sparkle:version>30</sparkle:version>
+            <sparkle:version>233</sparkle:version>
             <sparkle:shortVersionString>0.3.0</sparkle:shortVersionString>
             <description><![CDATA[<!DOCTYPE html><html><head><meta charset="utf-8"><style>
 body {
@@ -68,11 +68,11 @@ hr { border: none; border-top: 1px solid rgba(61, 46, 31, 0.15); margin: 14px 0;
 <hr>
 <p><strong>完整变更</strong>: <a href="https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/compare/v0.2.5...v0.3.0">https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/compare/v0.2.5...v0.3.0</a></p>
 </body></html>]]></description>
-            <pubDate>Sat, 11 Jul 2026 04:42:32 +0000</pubDate>
+            <pubDate>Sat, 11 Jul 2026 06:00:21 +0000</pubDate>
             <enclosure
                 url="https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/releases/download/v0.3.0/xiaoxiao-wannianli-0.3.0.zip"
-                sparkle:edSignature="sFewH9i5nwIraREzFio6wi68WpM41mK7PzZgvCbEfq+ciXcZEx8noASNcarJYn3zUmz4coFuuDvjwymO0mZCAg=="
-                length="10003957"
+                sparkle:edSignature="wWykXX1R8CbaXTVDPu5g0xBfJPCJ1E2eLvxG+pOJX5f9eOCoxfyQZHlJ2ExIjYH4C8A3y7w4cwdDZSLIxHs4Bg=="
+                length="10003966"
                 type="application/octet-stream" />
         </item>
     </channel>
