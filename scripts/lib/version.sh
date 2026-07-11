@@ -40,12 +40,16 @@ resolve_version() {
     cargo pkgid | sed 's/.*@//'
 }
 
-# CFBundleVersion / sparkle:version: the git commit count, incrementing with
-# every commit independently of the marketing version.
-# NOTE: this rebased the build number below historical releases (v0.2.5
-# shipped as build 205); installs from those builds won't see Sparkle updates.
+# CFBundleVersion / sparkle:version: git commit count plus a fixed offset.
+# The offset keeps new builds above the historical semver-derived numbers
+# (v0.2.5 shipped as build 205), so Sparkle updates keep working for old
+# installs. Never lower this offset.
+BUILD_NUMBER_OFFSET=200
+
 build_number() {
-    git rev-list --count HEAD 2>/dev/null || echo 0
+    local commits
+    commits="$(git rev-list --count HEAD 2>/dev/null || echo 0)"
+    echo $(( BUILD_NUMBER_OFFSET + commits ))
 }
 
 # Returns the repository's default branch (e.g. main).
