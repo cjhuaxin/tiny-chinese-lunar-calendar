@@ -64,6 +64,15 @@ pub struct MonthGrid {
     pub days: Vec<DayCell>,
 }
 
+/// One day of the 30-day forecast, used by the calendar grid cells.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DailyForecast {
+    pub date: String, // "YYYY-MM-DD"
+    pub temp_min: String,
+    pub temp_max: String,
+    pub icon_kind: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WeatherSnapshot {
     pub temp: String,

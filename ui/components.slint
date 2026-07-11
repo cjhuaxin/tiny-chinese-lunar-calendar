@@ -11,11 +11,106 @@ export struct DayCellData {
     is-selected: bool,
     is-weekend: bool,
     workday-tag: string, // "" | "休" | "班"
+    wx-icon: string, // "" = no forecast for this day
+    wx-temp: string, // "26~34°"
 }
 
 export struct WeekdayLabel {
     text: string,
     weekend: bool,
+}
+
+export component WeatherIcon inherits Rectangle {
+    in property <string> kind; // sunny | cloudy | overcast | rain | snow | fog | wind | unknown
+    in property <color> stroke-color: Theme.ink-secondary;
+
+    width: 18px;
+    height: 18px;
+    // Overridable so tiny instances (day cells) can use bolder strokes.
+    in property <length> stroke-w: Math.max(1px, root.width / 15);
+
+    if kind == "sunny" : Path {
+        width: 100%;
+        height: 100%;
+        viewbox-width: 24;
+        viewbox-height: 24;
+        commands: "M 12 3 L 12 6 M 12 18 L 12 21 M 3 12 L 6 12 M 18 12 L 21 12 M 5.6 5.6 L 7.8 7.8 M 16.2 16.2 L 18.4 18.4 M 5.6 18.4 L 7.8 16.2 M 16.2 7.8 L 18.4 5.6 M 12 8 A 4 4 0 1 1 11.99 8";
+        stroke: root.stroke-color;
+        stroke-width: root.stroke-w;
+        fill: transparent;
+    }
+    if kind == "cloudy" : Path {
+        width: 100%;
+        height: 100%;
+        viewbox-width: 24;
+        viewbox-height: 24;
+        commands: "M 7 18 A 4 4 0 0 1 7 10 A 5 5 0 0 1 17 9 A 3.5 3.5 0 0 1 17 16 Z";
+        stroke: root.stroke-color;
+        stroke-width: root.stroke-w;
+        fill: transparent;
+    }
+    // Overcast: one bold front cloud plus a back-cloud arc peeking out
+    // top-right; simple enough to stay legible at day-cell sizes.
+    if kind == "overcast" : Path {
+        width: 100%;
+        height: 100%;
+        viewbox-width: 24;
+        viewbox-height: 24;
+        commands: "M 7 20 A 4 4 0 0 1 7 12 A 5 5 0 0 1 17 11 A 3.5 3.5 0 0 1 17 18 Z M 12.5 8.5 A 4 4 0 0 1 19.5 10";
+        stroke: root.stroke-color;
+        stroke-width: root.stroke-w;
+        fill: transparent;
+    }
+    if kind == "rain" : Path {
+        width: 100%;
+        height: 100%;
+        viewbox-width: 24;
+        viewbox-height: 24;
+        commands: "M 7 16 A 4 4 0 0 1 7 8 A 5 5 0 0 1 17 7 A 3.5 3.5 0 0 1 17 14 Z M 9 17.5 L 8 20.5 M 12.5 17.5 L 11.5 20.5 M 16 17.5 L 15 20.5";
+        stroke: root.stroke-color;
+        stroke-width: root.stroke-w;
+        fill: transparent;
+    }
+    if kind == "snow" : Path {
+        width: 100%;
+        height: 100%;
+        viewbox-width: 24;
+        viewbox-height: 24;
+        commands: "M 7 16 A 4 4 0 0 1 7 8 A 5 5 0 0 1 17 7 A 3.5 3.5 0 0 1 17 14 Z M 9 17.5 L 9 20.5 M 12.5 17 L 12.5 21 M 16 17.5 L 16 20.5";
+        stroke: root.stroke-color;
+        stroke-width: root.stroke-w;
+        fill: transparent;
+    }
+    if kind == "fog" : Path {
+        width: 100%;
+        height: 100%;
+        viewbox-width: 24;
+        viewbox-height: 24;
+        commands: "M 4 10 L 20 10 M 5 14 L 19 14 M 6 18 L 18 18";
+        stroke: root.stroke-color;
+        stroke-width: root.stroke-w;
+        fill: transparent;
+    }
+    if kind == "wind" : Path {
+        width: 100%;
+        height: 100%;
+        viewbox-width: 24;
+        viewbox-height: 24;
+        commands: "M 4 9 L 16 9 A 2 2 0 1 0 14 7 M 4 14 L 18 14 A 2.5 2.5 0 1 1 15 11";
+        stroke: root.stroke-color;
+        stroke-width: root.stroke-w;
+        fill: transparent;
+    }
+    if kind != "sunny" && kind != "cloudy" && kind != "overcast" && kind != "rain" && kind != "snow" && kind != "fog" && kind != "wind" : Path {
+        width: 100%;
+        height: 100%;
+        viewbox-width: 24;
+        viewbox-height: 24;
+        commands: "M 12 5 A 7 7 0 1 1 11.99 5";
+        stroke: root.stroke-color;
+        stroke-width: root.stroke-w;
+        fill: transparent;
+    }
 }
 
 export component DayCellView inherits Rectangle {
@@ -41,9 +136,21 @@ export component DayCellView inherits Rectangle {
         animate background { duration: 120ms; easing: ease; }
     }
 
+    property <bool> has-wx: cell.wx-temp != "";
+    // Muted per-condition tint; on the filled "today" cell everything flips
+    // to a light warm tone for contrast, outside-month days stay grayed.
+    property <color> wx-color: cell.is-today ? #f5e4dc
+        : !cell.is-current-month ? Theme.outside-gray
+        : cell.wx-icon == "sunny" ? #c98a2d
+        : (cell.wx-icon == "rain" || cell.wx-icon == "snow") ? Theme.solar-blue
+        : Theme.ink-secondary;
+
     VerticalLayout {
         alignment: center;
         spacing: 2px;
+        // A2 layout: the weather footnote hugs the bottom edge; nudge the
+        // date/lunar block up just enough that they never collide.
+        padding-bottom: root.has-wx ? 9px : 0px;
         Text {
             text: cell.solar-day;
             font-size: 13px;
@@ -67,6 +174,31 @@ export component DayCellView inherits Rectangle {
                 : cell.lunar-kind == "solar" ? Theme.solar-blue
                 : Theme.lunar-ink;
         }
+    }
+
+    // Condition icon floats in the top-left corner, mirroring the 休/班
+    // badge on the right; this frees the bottom row for plain text.
+    if root.has-wx && cell.wx-icon != "" : WeatherIcon {
+        x: 4px;
+        y: 3px;
+        width: 14px;
+        height: 14px;
+        kind: cell.wx-icon;
+        stroke-color: root.wx-color;
+    }
+
+    // Low/high temperature footnote pinned to the bottom edge.
+    if root.has-wx : Text {
+        y: parent.height - 15px;
+        height: 11px;
+        width: parent.width;
+        text: cell.wx-temp;
+        font-size: 8px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        color: cell.is-today ? #f5e4dc
+            : !cell.is-current-month ? Theme.outside-gray
+            : Theme.ink-secondary;
     }
 
     if cell.workday-tag != "" : Rectangle {
@@ -107,95 +239,6 @@ export component FestivalMoreBadge inherits Rectangle {
         color: Theme.cinnabar;
         horizontal-alignment: center;
         vertical-alignment: center;
-    }
-}
-
-export component WeatherIcon inherits Rectangle {
-    in property <string> kind; // sunny | cloudy | overcast | rain | snow | fog | wind | unknown
-
-    width: 18px;
-    height: 18px;
-    property <length> stroke-w: Math.max(1px, root.width / 15);
-
-    if kind == "sunny" : Path {
-        width: 100%;
-        height: 100%;
-        viewbox-width: 24;
-        viewbox-height: 24;
-        commands: "M 12 3 L 12 6 M 12 18 L 12 21 M 3 12 L 6 12 M 18 12 L 21 12 M 5.6 5.6 L 7.8 7.8 M 16.2 16.2 L 18.4 18.4 M 5.6 18.4 L 7.8 16.2 M 16.2 7.8 L 18.4 5.6 M 12 8 A 4 4 0 1 1 11.99 8";
-        stroke: Theme.ink-secondary;
-        stroke-width: root.stroke-w;
-        fill: transparent;
-    }
-    if kind == "cloudy" : Path {
-        width: 100%;
-        height: 100%;
-        viewbox-width: 24;
-        viewbox-height: 24;
-        commands: "M 7 18 A 4 4 0 0 1 7 10 A 5 5 0 0 1 17 9 A 3.5 3.5 0 0 1 17 16 Z";
-        stroke: Theme.ink-secondary;
-        stroke-width: root.stroke-w;
-        fill: transparent;
-    }
-    if kind == "overcast" : Path {
-        width: 100%;
-        height: 100%;
-        viewbox-width: 24;
-        viewbox-height: 24;
-        commands: "M 6 15 A 3 3 0 0 1 6 12 A 3.5 3.5 0 0 1 10 10 A 3 3 0 0 1 14 10 A 4 4 0 0 1 18 12 A 2.5 2.5 0 0 1 18 15 A 5.5 5.5 0 0 1 6 15 Z M 9 17 A 2.5 2.5 0 0 1 9 15 A 3 3 0 0 1 13 14 A 2.5 2.5 0 0 1 17 15 A 2 2 0 0 1 17 17 A 4 4 0 0 1 9 17 Z";
-        stroke: Theme.ink-secondary;
-        stroke-width: root.stroke-w;
-        fill: transparent;
-    }
-    if kind == "rain" : Path {
-        width: 100%;
-        height: 100%;
-        viewbox-width: 24;
-        viewbox-height: 24;
-        commands: "M 7 13 A 3 3 0 0 1 7 10 A 3.5 3.5 0 0 1 11 8 A 3 3 0 0 1 15 8 A 4 4 0 0 1 19 10 A 2.5 2.5 0 0 1 19 13 A 6 6 0 0 1 7 13 Z M 9 16 L 8 19 M 12 16 L 11 19 M 15 16 L 14 19";
-        stroke: Theme.ink-secondary;
-        stroke-width: root.stroke-w;
-        fill: transparent;
-    }
-    if kind == "snow" : Path {
-        width: 100%;
-        height: 100%;
-        viewbox-width: 24;
-        viewbox-height: 24;
-        commands: "M 7 13 A 3 3 0 0 1 7 10 A 3.5 3.5 0 0 1 11 8 A 3 3 0 0 1 15 8 A 4 4 0 0 1 19 10 A 2.5 2.5 0 0 1 19 13 A 6 6 0 0 1 7 13 Z M 9 16 L 9 19 M 12 15 L 12 19 M 15 16 L 15 19";
-        stroke: Theme.ink-secondary;
-        stroke-width: root.stroke-w;
-        fill: transparent;
-    }
-    if kind == "fog" : Path {
-        width: 100%;
-        height: 100%;
-        viewbox-width: 24;
-        viewbox-height: 24;
-        commands: "M 4 10 L 20 10 M 5 14 L 19 14 M 6 18 L 18 18";
-        stroke: Theme.ink-secondary;
-        stroke-width: root.stroke-w;
-        fill: transparent;
-    }
-    if kind == "wind" : Path {
-        width: 100%;
-        height: 100%;
-        viewbox-width: 24;
-        viewbox-height: 24;
-        commands: "M 4 9 L 16 9 A 2 2 0 1 0 14 7 M 4 14 L 18 14 A 2.5 2.5 0 1 1 15 11";
-        stroke: Theme.ink-secondary;
-        stroke-width: root.stroke-w;
-        fill: transparent;
-    }
-    if kind != "sunny" && kind != "cloudy" && kind != "overcast" && kind != "rain" && kind != "snow" && kind != "fog" && kind != "wind" : Path {
-        width: 100%;
-        height: 100%;
-        viewbox-width: 24;
-        viewbox-height: 24;
-        commands: "M 12 5 A 7 7 0 1 1 11.99 5";
-        stroke: Theme.ink-secondary;
-        stroke-width: root.stroke-w;
-        fill: transparent;
     }
 }
 

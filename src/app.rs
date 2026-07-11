@@ -487,9 +487,7 @@ impl App {
                     weather::ensure_weather(lat, lon, move || {
                         let main_weak = main_weak.clone();
                         let _ = slint::invoke_from_event_loop(move || {
-                            if let Some(main) = main_weak.upgrade() {
-                                weather::apply_weather_to_window(&main);
-                            }
+                            apply_weather_ui(&main_weak);
                         });
                     });
                 }
@@ -501,17 +499,13 @@ impl App {
                             weather::ensure_weather(lat, lon, move || {
                                 let main_weak = main_weak.clone();
                                 let _ = slint::invoke_from_event_loop(move || {
-                                    if let Some(main) = main_weak.upgrade() {
-                                        weather::apply_weather_to_window(&main);
-                                    }
+                                    apply_weather_ui(&main_weak);
                                 });
                             });
                         } else {
                             weather::set_unavailable(&err);
                             let _ = slint::invoke_from_event_loop(move || {
-                                if let Some(main) = main_weak.upgrade() {
-                                    weather::apply_weather_to_window(&main);
-                                }
+                                apply_weather_ui(&main_weak);
                             });
                         }
                     });
@@ -676,6 +670,16 @@ pub fn release_malloc_pages() {
 #[cfg(not(target_os = "macos"))]
 pub fn release_malloc_pages() {}
 
+/// Pushes freshly fetched weather into the hero badge and re-renders the
+/// grid so cells pick up their per-day forecast. Must run on the UI thread.
+fn apply_weather_ui(main_weak: &slint::Weak<MainWindow>) {
+    let Some(main) = main_weak.upgrade() else {
+        return;
+    };
+    weather::apply_weather_to_window(&main);
+    with_app(|app| refresh_grid(&main, &app.state));
+}
+
 fn apply_year_month(main: &MainWindow, state: &Rc<State>, year: i32, month: u32) {
     state.focused_year.set(year);
     state.focused_month.set(month);
@@ -702,20 +706,50 @@ fn refresh_grid(main: &MainWindow, state: &Rc<State>) {
 
     let grid = build_month_grid(year, month, &settings, selected);
 
+    // date → (icon kind, "26~34°") from the cached 30-day forecast; empty
+    // when the weather display is disabled or no forecast has loaded yet.
+    let forecast: std::collections::HashMap<String, (String, String)> = if settings.show_weather {
+        weather::daily_forecasts()
+            .map(|days| {
+                days.iter()
+                    .filter(|d| !d.temp_min.is_empty() && !d.temp_max.is_empty())
+                    .map(|d| {
+                        (
+                            d.date.clone(),
+                            (
+                                d.icon_kind.clone(),
+                                format!("{}~{}°", d.temp_min, d.temp_max),
+                            ),
+                        )
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    } else {
+        Default::default()
+    };
+
     let cells: Vec<DayCellData> = grid
         .days
         .iter()
-        .map(|cell| DayCellData {
-            date: cell.date.clone().into(),
-            solar_day: cell.solar_day as i32,
-            lunar_text: cell.lunar_text.clone().into(),
-            lunar_kind: cell.lunar_text_kind.clone().into(),
-            is_current_month: cell.is_current_month,
-            is_visible: cell.is_current_month || cell.is_outside_visible,
-            is_today: cell.is_today,
-            is_selected: cell.is_selected,
-            is_weekend: cell.is_weekend,
-            workday_tag: cell.workday_tag.clone().unwrap_or_default().into(),
+        .map(|cell| {
+            // Outside-month days get weather too when the 30-day window
+            // covers them; the cell renders them in the muted outside tint.
+            let wx = forecast.get(&cell.date);
+            DayCellData {
+                date: cell.date.clone().into(),
+                solar_day: cell.solar_day as i32,
+                lunar_text: cell.lunar_text.clone().into(),
+                lunar_kind: cell.lunar_text_kind.clone().into(),
+                is_current_month: cell.is_current_month,
+                is_visible: cell.is_current_month || cell.is_outside_visible,
+                is_today: cell.is_today,
+                is_selected: cell.is_selected,
+                is_weekend: cell.is_weekend,
+                workday_tag: cell.workday_tag.clone().unwrap_or_default().into(),
+                wx_icon: wx.map(|(icon, _)| icon.clone()).unwrap_or_default().into(),
+                wx_temp: wx.map(|(_, temp)| temp.clone()).unwrap_or_default().into(),
+            }
         })
         .collect();
 

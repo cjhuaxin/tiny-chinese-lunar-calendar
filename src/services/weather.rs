@@ -8,11 +8,16 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 
-use crate::models::WeatherSnapshot;
+use crate::models::{DailyForecast, WeatherSnapshot};
 use crate::services::qweather_jwt;
 use crate::settings::app_data_dir;
 
 const CACHE_TTL_SECS: u64 = 60 * 60;
+// The 30-day forecast changes slowly; refetching every 6h keeps API usage low.
+const FORECAST_TTL_SECS: u64 = 6 * 60 * 60;
+// A coordinate's city name is effectively immutable; cache it for 30 days so
+// the GeoAPI lookup drops out of the regular refresh cycle.
+const CITY_TTL_SECS: u64 = 30 * 24 * 60 * 60;
 const PROXY_HOST: &str = "127.0.0.1";
 const PROXY_PORT: u16 = 7890;
 
@@ -60,7 +65,25 @@ struct WeatherCacheFile {
     fetched_at: u64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ForecastCacheFile {
+    lat: f64,
+    lon: f64,
+    days: Vec<DailyForecast>,
+    fetched_at: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CityCacheFile {
+    lat: f64,
+    lon: f64,
+    name: String,
+    fetched_at: u64,
+}
+
 static WEATHER_STATE: Lazy<Mutex<Option<Arc<WeatherSnapshot>>>> = Lazy::new(|| Mutex::new(None));
+static FORECAST_STATE: Lazy<Mutex<Option<Arc<Vec<DailyForecast>>>>> =
+    Lazy::new(|| Mutex::new(None));
 
 fn now_secs() -> u64 {
     SystemTime::now()
@@ -71,6 +94,18 @@ fn now_secs() -> u64 {
 
 fn weather_cache_path() -> Result<PathBuf, String> {
     Ok(app_data_dir()?.join("weather_cache.json"))
+}
+
+fn forecast_cache_path() -> Result<PathBuf, String> {
+    Ok(app_data_dir()?.join("forecast_cache.json"))
+}
+
+fn city_cache_path() -> Result<PathBuf, String> {
+    Ok(app_data_dir()?.join("city_cache.json"))
+}
+
+fn coords_match(a_lat: f64, a_lon: f64, b_lat: f64, b_lon: f64) -> bool {
+    (a_lat - b_lat).abs() <= 0.01 && (a_lon - b_lon).abs() <= 0.01
 }
 
 fn coord_cache_path() -> Result<PathBuf, String> {
@@ -152,10 +187,77 @@ fn save_weather_cache(lat: f64, lon: f64, snapshot: &WeatherSnapshot) -> Result<
     fs::write(path, content).map_err(|e| e.to_string())
 }
 
+fn load_forecast_cache(lat: f64, lon: f64) -> Option<Vec<DailyForecast>> {
+    let path = forecast_cache_path().ok()?;
+    let content = fs::read_to_string(path).ok()?;
+    let cache: ForecastCacheFile = serde_json::from_str(&content).ok()?;
+    if !coords_match(cache.lat, cache.lon, lat, lon) {
+        return None;
+    }
+    if now_secs().saturating_sub(cache.fetched_at) > FORECAST_TTL_SECS {
+        return None;
+    }
+    Some(cache.days)
+}
+
+fn save_forecast_cache(lat: f64, lon: f64, days: &[DailyForecast]) -> Result<(), String> {
+    let cache = ForecastCacheFile {
+        lat,
+        lon,
+        days: days.to_vec(),
+        fetched_at: now_secs(),
+    };
+    let path = forecast_cache_path()?;
+    let content = serde_json::to_string_pretty(&cache).map_err(|e| e.to_string())?;
+    fs::write(path, content).map_err(|e| e.to_string())
+}
+
+fn load_city_cache(lat: f64, lon: f64) -> Option<String> {
+    let path = city_cache_path().ok()?;
+    let content = fs::read_to_string(path).ok()?;
+    let cache: CityCacheFile = serde_json::from_str(&content).ok()?;
+    if !coords_match(cache.lat, cache.lon, lat, lon) {
+        return None;
+    }
+    if now_secs().saturating_sub(cache.fetched_at) > CITY_TTL_SECS {
+        return None;
+    }
+    if cache.name.is_empty() {
+        return None;
+    }
+    Some(cache.name)
+}
+
+fn save_city_cache(lat: f64, lon: f64, name: &str) {
+    let cache = CityCacheFile {
+        lat,
+        lon,
+        name: name.to_string(),
+        fetched_at: now_secs(),
+    };
+    if let (Ok(path), Ok(content)) = (city_cache_path(), serde_json::to_string_pretty(&cache)) {
+        let _ = fs::write(path, content);
+    }
+}
+
 fn set_memory(snapshot: WeatherSnapshot) {
     if let Ok(mut guard) = WEATHER_STATE.lock() {
         *guard = Some(Arc::new(snapshot));
     }
+}
+
+fn set_forecast_memory(days: Vec<DailyForecast>) {
+    if let Ok(mut guard) = FORECAST_STATE.lock() {
+        *guard = Some(Arc::new(days));
+    }
+}
+
+/// The most recent 30-day forecast, for the calendar grid cells.
+pub fn daily_forecasts() -> Option<Arc<Vec<DailyForecast>>> {
+    FORECAST_STATE
+        .lock()
+        .ok()
+        .and_then(|guard| guard.as_ref().map(Arc::clone))
 }
 
 pub fn current_weather() -> Option<Arc<WeatherSnapshot>> {
@@ -285,38 +387,86 @@ fn curl_get(url: &str) -> Result<Vec<u8>, String> {
     }
 }
 
-fn fetch_daily_temps(lat: f64, lon: f64) -> Result<(String, String), String> {
-    let location = format!("{lon:.2},{lat:.2}");
-    let url = format!(
-        "https://{}/v7/weather/3d?location={}&lang=zh",
-        QWEATHER_API_HOST, location
-    );
-    let body = curl_get(&url)?;
-    let json: serde_json::Value = serde_json::from_slice(&body).map_err(|e| e.to_string())?;
+fn parse_daily_forecast(body: &[u8]) -> Result<Vec<DailyForecast>, String> {
+    let json: serde_json::Value = serde_json::from_slice(body).map_err(|e| e.to_string())?;
 
     let code = json.get("code").and_then(|v| v.as_str()).unwrap_or("");
     if code != "200" {
         return Err(format!("QWeather daily returned code {code}"));
     }
 
-    let today = json
+    let days = json
         .get("daily")
         .and_then(|v| v.as_array())
-        .and_then(|arr| arr.first())
         .ok_or_else(|| "missing daily forecast".to_string())?;
 
-    let temp_max = today
-        .get("tempMax")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-    let temp_min = today
-        .get("tempMin")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
+    Ok(days
+        .iter()
+        .map(|day| {
+            let get = |key: &str| {
+                day.get(key)
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string()
+            };
+            DailyForecast {
+                date: get("fxDate"),
+                temp_min: get("tempMin"),
+                temp_max: get("tempMax"),
+                icon_kind: icon_kind_from_code(&get("iconDay")),
+            }
+        })
+        .collect())
+}
 
-    Ok((temp_max, temp_min))
+/// Fetches the daily forecast; 30 days covers today's range plus every
+/// calendar cell. Falls back to 3d if the plan doesn't include 30d.
+fn fetch_forecast(lat: f64, lon: f64) -> Result<Vec<DailyForecast>, String> {
+    let location = format!("{lon:.2},{lat:.2}");
+    let url_30d = format!(
+        "https://{}/v7/weather/30d?location={}&lang=zh",
+        QWEATHER_API_HOST, location
+    );
+    let err_30d = match curl_get(&url_30d).and_then(|body| parse_daily_forecast(&body)) {
+        Ok(days) => return Ok(days),
+        Err(err) => err,
+    };
+    eprintln!("QWeather 30d fetch failed ({err_30d}); falling back to 3d");
+    let url_3d = format!(
+        "https://{}/v7/weather/3d?location={}&lang=zh",
+        QWEATHER_API_HOST, location
+    );
+    curl_get(&url_3d).and_then(|body| parse_daily_forecast(&body))
+}
+
+/// Loads the daily forecast from cache or network, updating the in-memory
+/// state either way. Returns today's (temp_max, temp_min) when known.
+fn ensure_forecast(lat: f64, lon: f64) -> (String, String) {
+    let days = match load_forecast_cache(lat, lon) {
+        Some(days) => days,
+        None => match fetch_forecast(lat, lon) {
+            Ok(days) => {
+                let _ = save_forecast_cache(lat, lon, &days);
+                days
+            }
+            Err(err) => {
+                eprintln!("QWeather forecast fetch failed: {err}");
+                Vec::new()
+            }
+        },
+    };
+
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let range = days
+        .iter()
+        .find(|d| d.date == today)
+        .map(|d| (d.temp_max.clone(), d.temp_min.clone()))
+        .unwrap_or_default();
+
+    if !days.is_empty() {
+        set_forecast_memory(days);
+    }
+    range
 }
 
 fn fetch_weather_now(lat: f64, lon: f64) -> Result<WeatherSnapshot, String> {
@@ -357,8 +507,8 @@ fn fetch_weather_now(lat: f64, lon: f64) -> Result<WeatherSnapshot, String> {
         .and_then(|v| v.as_str())
         .unwrap_or("999");
 
-    let city = fetch_city_name(lat, lon).unwrap_or_default();
-    let (temp_max, temp_min) = fetch_daily_temps(lat, lon).unwrap_or_default();
+    let city = city_name(lat, lon);
+    let (temp_max, temp_min) = ensure_forecast(lat, lon);
 
     Ok(WeatherSnapshot {
         temp,
@@ -371,6 +521,26 @@ fn fetch_weather_now(lat: f64, lon: f64) -> Result<WeatherSnapshot, String> {
         available: true,
         error_message: String::new(),
     })
+}
+
+/// Cached coordinate → city name lookup; the GeoAPI is only hit when the
+/// cache misses (new location or >30 days old).
+fn city_name(lat: f64, lon: f64) -> String {
+    if let Some(name) = load_city_cache(lat, lon) {
+        return name;
+    }
+    match fetch_city_name(lat, lon) {
+        Ok(name) => {
+            if !name.is_empty() {
+                save_city_cache(lat, lon, &name);
+            }
+            name
+        }
+        Err(err) => {
+            eprintln!("GeoAPI city lookup failed: {err}");
+            String::new()
+        }
+    }
 }
 
 fn fetch_city_name(lat: f64, lon: f64) -> Result<String, String> {
@@ -436,12 +606,24 @@ pub fn set_loading() {
 pub fn ensure_weather(lat: f64, lon: f64, on_refreshed: impl Fn() + Send + 'static) {
     if let Some(cached) = load_weather_cache(lat, lon) {
         set_memory(cached);
-        on_refreshed();
+        if let Some(days) = load_forecast_cache(lat, lon) {
+            set_forecast_memory(days);
+            on_refreshed();
+        } else if qweather_configured() {
+            // Current conditions are fresh but the 30-day forecast expired;
+            // refresh just the forecast off the main thread.
+            std::thread::spawn(move || {
+                let _ = ensure_forecast(lat, lon);
+                on_refreshed();
+            });
+        } else {
+            on_refreshed();
+        }
         return;
     }
 
     if let Some(mem) = current_weather() {
-        if mem.available && snapshot_has_daily_range(&mem) {
+        if mem.available && snapshot_has_daily_range(&mem) && daily_forecasts().is_some() {
             on_refreshed();
             return;
         }
