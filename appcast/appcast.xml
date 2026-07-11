@@ -2,20 +2,77 @@
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
     <channel>
         <title>小小万年历</title>
-        <link>https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/releases/tag/v0.2.5</link>
+        <link>https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/releases/tag/v0.3.0</link>
         <description>Most recent updates to 小小万年历</description>
         <language>zh-cn</language>
         <item>
-            <title>Version 0.2.5</title>
-            <link>https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/releases/tag/v0.2.5</link>
-            <sparkle:version>205</sparkle:version>
-            <sparkle:shortVersionString>0.2.5</sparkle:shortVersionString>
-            <sparkle:releaseNotesLink>https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/releases/tag/v0.2.5</sparkle:releaseNotesLink>
-            <pubDate>Wed, 08 Jul 2026 02:52:41 +0000</pubDate>
+            <title>Version 0.3.0</title>
+            <link>https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/releases/tag/v0.3.0</link>
+            <sparkle:version>30</sparkle:version>
+            <sparkle:shortVersionString>0.3.0</sparkle:shortVersionString>
+            <description><![CDATA[<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+body {
+    font-family: -apple-system, "PingFang SC", sans-serif;
+    font-size: 13px;
+    line-height: 1.65;
+    color: #3d2e1f;
+    margin: 0;
+    padding: 14px 18px;
+}
+h2 { font-size: 17px; margin: 0 0 10px; }
+h3 { font-size: 14px; margin: 18px 0 6px; }
+p { margin: 6px 0; }
+ul, ol { margin: 6px 0; padding-left: 22px; }
+li { margin: 3px 0; }
+a { color: #b4552d; text-decoration: none; }
+code {
+    font-family: ui-monospace, Menlo, monospace;
+    font-size: 12px;
+    background: rgba(61, 46, 31, 0.07);
+    border-radius: 4px;
+    padding: 1px 4px;
+}
+hr { border: none; border-top: 1px solid rgba(61, 46, 31, 0.15); margin: 14px 0; }
+@media (prefers-color-scheme: dark) {
+    body { color: #e8e2d8; }
+    a { color: #e8956d; }
+    code { background: rgba(232, 226, 216, 0.12); }
+    hr { border-top-color: rgba(232, 226, 216, 0.2); }
+}
+</style></head><body>
+<h2>✨ 小小万年历 0.3.0</h2>
+<p>本次带来全新的天气模块：打开日历,今天的天气一目了然。</p>
+<hr>
+<h3>🌤 今日天气</h3>
+<ul>
+<li>今日栏新增天气卡片：城市、当前温度、天气图标、体感温度与高低温区间</li>
+<li>定位优先使用系统定位（CoreLocation）,更精准;IP 兜底结果短期缓存,不再"漂"到别的城市</li>
+<li>城市名支持全国省市区县,与日历同款楷体渲染</li>
+<li>新增「显示天气」开关（默认开启）,关闭后完全不请求定位与天气服务</li>
+</ul>
+<h3>🛠 体验优化</h3>
+<ul>
+<li>「关于」窗口即点即开,不再转圈等待</li>
+<li>设置窗口左上角新增关闭按钮</li>
+<li>更新弹窗直接展示更新内容,无需跳转网页</li>
+<li>构建号改用 git 提交数,每次构建可追溯</li>
+</ul>
+<hr>
+<h3>📦 安装与升级</h3>
+<ol>
+<li>1. 下载下方 <strong>xiaoxiao-wannianli-0.3.0.dmg</strong></li>
+<li>2. 打开 DMG,将应用拖入「应用程序」文件夹</li>
+<li>3. 首次打开日历时允许定位权限,即可看到本地天气</li>
+</ol>
+<p>⚠️ 因构建号规则调整,<strong>0.2.5 及更早版本需手动下载本版安装</strong>,后续即可恢复自动更新。</p>
+<hr>
+<p><strong>完整变更</strong>: <a href="https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/compare/v0.2.5...v0.3.0">https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/compare/v0.2.5...v0.3.0</a></p>
+</body></html>]]></description>
+            <pubDate>Sat, 11 Jul 2026 04:42:32 +0000</pubDate>
             <enclosure
-                url="https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/releases/download/v0.2.5/xiaoxiao-wannianli-0.2.5.zip"
-                sparkle:edSignature="PWHxGc7jmiqsb0AxQisyfOtji0DtYldYCzqlelMh8ltdlVOc3855t1z0MuAPVj8O32pyksvzKXJ/w4Rx5Xn8CA=="
-                length="9341620"
+                url="https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/releases/download/v0.3.0/xiaoxiao-wannianli-0.3.0.zip"
+                sparkle:edSignature="sFewH9i5nwIraREzFio6wi68WpM41mK7PzZgvCbEfq+ciXcZEx8noASNcarJYn3zUmz4coFuuDvjwymO0mZCAg=="
+                length="10003957"
                 type="application/octet-stream" />
         </item>
     </channel>
