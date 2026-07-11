@@ -23,7 +23,13 @@ APPCAST_FILE="appcast/appcast.xml"
 PRIVATE_KEY_FILE="sparkle_private_key.txt"
 GITHUB_REPO="cjhuaxin/tiny-chinese-lunar-calendar"
 RELEASE_URL="https://github.com/${GITHUB_REPO}/releases/tag/${TAG}"
-DOWNLOAD_URL="https://github.com/${GITHUB_REPO}/releases/download/${TAG}/${ZIP_NAME}"
+# Serve the update zip from the R2 mirror when configured (fast from China);
+# GitHub Releases remain the fallback source.
+if r2_configured; then
+    DOWNLOAD_URL="$(r2_get public_base_url)/releases/${ZIP_NAME}"
+else
+    DOWNLOAD_URL="https://github.com/${GITHUB_REPO}/releases/download/${TAG}/${ZIP_NAME}"
+fi
 NOTES_FILE="docs/releases/${VERSION}.md"
 
 if [[ ! -x "sparkle-bin/sign_update" ]]; then

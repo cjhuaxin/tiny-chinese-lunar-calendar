@@ -1,0 +1,7 @@
+{
+  "account_id": "your-cloudflare-account-id",
+  "access_key_id": "your-r2-access-key-id",
+  "secret_access_key": "your-r2-secret-access-key",
+  "bucket": "tclc-updates",
+  "public_base_url": "https://updates.example.com"
+}

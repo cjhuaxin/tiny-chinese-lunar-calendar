@@ -52,6 +52,33 @@ build_number() {
     echo $(( BUILD_NUMBER_OFFSET + commits ))
 }
 
+# ── Cloudflare R2 update distribution (optional) ──
+# Configure by copying r2.local.example.json to r2.local.json. When present,
+# the Sparkle feed and enclosure URLs point at R2 (fast/reliable from China)
+# and publish-release.sh mirrors the artifacts there; GitHub Releases remain
+# the fallback copy.
+R2_CONFIG_FILE="r2.local.json"
+
+r2_configured() {
+    [[ -f "$R2_CONFIG_FILE" ]]
+}
+
+r2_get() {
+    python3 -c "import json; print(json.load(open('$R2_CONFIG_FILE'))['$1'])"
+}
+
+# r2_upload <local-file> <remote-key> [content-type]
+r2_upload() {
+    local file="$1" key="$2" ctype="${3:-application/octet-stream}"
+    AWS_ACCESS_KEY_ID="$(r2_get access_key_id)" \
+    AWS_SECRET_ACCESS_KEY="$(r2_get secret_access_key)" \
+    AWS_DEFAULT_REGION="auto" \
+    aws s3 cp "$file" "s3://$(r2_get bucket)/${key}" \
+        --endpoint-url "https://$(r2_get account_id).r2.cloudflarestorage.com" \
+        --content-type "$ctype" \
+        --no-progress
+}
+
 # Returns the repository's default branch (e.g. main).
 get_default_branch() {
     local branch
@@ -67,11 +94,15 @@ appcast_feed_url() {
     echo "https://cdn.jsdelivr.net/gh/${repo}@${branch}/appcast/appcast.xml"
 }
 
-# Stable feed URL baked into the app. Points at the latest GitHub Release asset
-# so Sparkle always sees the current appcast without CDN branch-cache delays.
+# Stable feed URL baked into the app. Prefers the R2 mirror (reachable from
+# China); falls back to the latest GitHub Release asset.
 appcast_runtime_feed_url() {
     local repo="${1:-cjhuaxin/tiny-chinese-lunar-calendar}"
-    echo "https://github.com/${repo}/releases/latest/download/appcast.xml"
+    if r2_configured; then
+        echo "$(r2_get public_base_url)/appcast.xml"
+    else
+        echo "https://github.com/${repo}/releases/latest/download/appcast.xml"
+    fi
 }
 
 # Purge the jsDelivr cache so Sparkle sees the latest appcast immediately after publish.

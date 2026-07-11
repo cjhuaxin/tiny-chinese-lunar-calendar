@@ -77,6 +77,14 @@ fi
 echo "Generating appcast..."
 scripts/generate-appcast.sh "$VERSION"
 
+if r2_configured; then
+    echo "Mirroring artifacts to Cloudflare R2..."
+    r2_upload "$ZIP_PATH" "releases/${RELEASE_DMG_NAME}-${VERSION}.zip"
+    r2_upload "$DMG_PATH" "releases/$(basename "$DMG_PATH")"
+    r2_upload "$APPCAST_FILE" "appcast.xml" "application/xml"
+    echo "R2 mirror updated: $(r2_get public_base_url)/appcast.xml"
+fi
+
 if ! git ls-remote --exit-code --tags origin "$TAG" >/dev/null 2>&1; then
     echo "Pushing tag $TAG..."
     git push origin "$TAG"
