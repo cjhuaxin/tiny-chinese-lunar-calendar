@@ -10,7 +10,7 @@ use slint::{ComponentHandle, VecModel};
 
 use crate::models::{AppSettings, CalendarLabelPriority, DayDetail};
 use crate::services::calendar::{build_day_detail, build_month_grid};
-use crate::services::holiday;
+use crate::services::{holiday, location, weather};
 use crate::settings::{load_settings, save_settings, sync_launch_at_login};
 use crate::textfit;
 use crate::{DayCellData, MainWindow, SettingsWindow, WeekdayLabel};
@@ -47,7 +47,7 @@ pub struct State {
     pub pinned: Cell<bool>,
     detail: RefCell<Option<DayDetail>>,
     relative_texts: RefCell<Vec<String>>,
-    hidden_festivals: RefCell<Vec<String>>,
+    cycle_festivals: RefCell<Vec<String>>,
     cycle_index: Cell<usize>,
     last_refresh_date: Cell<NaiveDate>,
     /// Screen anchor in *logical* top-left-origin coordinates:
@@ -122,7 +122,7 @@ impl App {
             pinned: Cell::new(false),
             detail: RefCell::new(None),
             relative_texts: RefCell::new(Vec::new()),
-            hidden_festivals: RefCell::new(Vec::new()),
+            cycle_festivals: RefCell::new(Vec::new()),
             cycle_index: Cell::new(0),
             last_refresh_date: Cell::new(now),
             tray_anchor: Cell::new(None),
@@ -406,6 +406,7 @@ impl App {
         // wrong frame is ever rendered, so no jump is visible.
         self.state.pos_corrections.set(6);
         let _ = main.show();
+        self.ensure_weather_for_main(&main);
 
         // Deferred best-effort focus (the winit window is created a tick
         // after show()); auto-close itself relies on the global click monitor.
@@ -459,6 +460,52 @@ impl App {
         center_settings_on_anchor_screen(&self.settings_win, anchor, 8);
         #[cfg(target_os = "macos")]
         crate::tray::macos::raise_slint_window(self.settings_win.window());
+    }
+
+    /// Fetches location + weather when the calendar popover opens.
+    fn ensure_weather_for_main(self: &Rc<Self>, main: &MainWindow) {
+        weather::set_loading();
+        weather::apply_weather_to_window(main);
+
+        let main_weak = main.as_weak();
+        location::request_coordinates(move |result| {
+            match result {
+                Ok((lat, lon)) => {
+                    let main_weak = main_weak.clone();
+                    weather::ensure_weather(lat, lon, move || {
+                        let main_weak = main_weak.clone();
+                        let _ = slint::invoke_from_event_loop(move || {
+                            if let Some(main) = main_weak.upgrade() {
+                                weather::apply_weather_to_window(&main);
+                            }
+                        });
+                    });
+                }
+                Err(err) => {
+                    eprintln!("location failed: {err}");
+                    let main_weak = main_weak.clone();
+                    std::thread::spawn(move || {
+                        if let Some((lat, lon)) = weather::resolve_coordinates_fallback() {
+                            weather::ensure_weather(lat, lon, move || {
+                                let main_weak = main_weak.clone();
+                                let _ = slint::invoke_from_event_loop(move || {
+                                    if let Some(main) = main_weak.upgrade() {
+                                        weather::apply_weather_to_window(&main);
+                                    }
+                                });
+                            });
+                        } else {
+                            weather::set_unavailable(&err);
+                            let _ = slint::invoke_from_event_loop(move || {
+                                if let Some(main) = main_weak.upgrade() {
+                                    weather::apply_weather_to_window(&main);
+                                }
+                            });
+                        }
+                    });
+                }
+            }
+        });
     }
 
     /// Installs the winit focus-lost hook that auto-destroys the main window
@@ -706,6 +753,13 @@ fn refresh_detail(main: &MainWindow, state: &Rc<State>) {
     );
     main.set_lunar_title(detail.lunar_date_title.clone().into());
 
+    let mut relative = vec![detail.humanized_date.clone()];
+    if let Some(alt) = detail.alternate_humanized.clone() {
+        relative.push(alt);
+    }
+
+    *state.relative_texts.borrow_mut() = relative;
+
     let workday_line = match holiday::workday_tag(date.year(), date.month(), date.day()) {
         Some(tag) if tag == "休" => "法定假日",
         Some(_) => "调休上班",
@@ -713,22 +767,10 @@ fn refresh_detail(main: &MainWindow, state: &Rc<State>) {
     };
     main.set_workday_line(workday_line.into());
 
-    let mut relative = vec![detail.humanized_date.clone()];
-    if let Some(alt) = detail.alternate_humanized.clone() {
-        relative.push(alt);
-    }
-    *state.relative_texts.borrow_mut() = relative;
-
     let fit = textfit::fit_festivals(&detail.lunar_date_title, &detail.festivals);
     main.set_festivals_more(fit.more_count as i32);
-    // Always overwrite the text so festivals from a previously selected day
-    // don't linger; when nothing fits, cycle through hidden entries instead.
     main.set_festivals_text(fit.visible_text.clone().into());
-    *state.hidden_festivals.borrow_mut() = if fit.visible_text.is_empty() {
-        fit.hidden.clone()
-    } else {
-        Vec::new()
-    };
+    *state.cycle_festivals.borrow_mut() = fit.cycle_festivals.clone();
 
     *state.detail.borrow_mut() = Some(detail);
     apply_cycle_texts(main, state);
@@ -753,8 +795,8 @@ fn apply_cycle_texts(main: &MainWindow, state: &Rc<State>) {
     }
     main.set_meta_text(meta_parts.join(" · ").into());
 
-    let hidden = state.hidden_festivals.borrow();
-    if !hidden.is_empty() {
-        main.set_festivals_text(hidden[index % hidden.len()].clone().into());
+    let cycle = state.cycle_festivals.borrow();
+    if cycle.len() > 1 {
+        main.set_festivals_text(cycle[index % cycle.len()].clone().into());
     }
 }

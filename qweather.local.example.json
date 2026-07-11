@@ -1,0 +1,6 @@
+{
+  "api_host": "your-api-host.qweatherapi.com",
+  "kid": "your-credential-id",
+  "project_id": "your-project-id",
+  "private_key_path": "qweather.private.pem"
+}

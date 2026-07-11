@@ -1,17 +1,17 @@
-//! Text measurement used to reproduce the frontend's `useFitItems` behaviour:
-//! decide how many festival names fit on the hero line, showing "+N" overflow.
+//! Text measurement for the hero primary line: lunar title plus festivals,
+//! showing a "+N" overflow badge when needed.
 
 use ab_glyph::{Font, FontRef, PxScale, ScaleFont};
 use once_cell::sync::Lazy;
 
 use crate::fontload;
 
-// Fixed metrics derived from the 500px-wide hero layout:
-// 500 - 2*16 (padding) - 52 (date col) - 2*14 (gaps) - 62 (actions) = 326
-const INFO_WIDTH: f32 = 326.0;
+// 500 - 2*16 (padding) - 52 (date) - 2*14 + 10 (gaps) - 72 (weather max) - 62 (actions) = 244
+const INFO_WIDTH: f32 = 244.0;
 const LUNAR_MAX_RATIO: f32 = 0.55;
 const LUNAR_FONT_SIZE: f32 = 16.0;
 const FESTIVAL_FONT_SIZE: f32 = 13.0;
+const BADGE_H_PADDING: f32 = 8.0;
 
 static FONT_REGULAR: Lazy<Option<FontRef<'static>>> = Lazy::new(|| fontload::load_ui_font(false));
 static FONT_BOLD: Lazy<Option<FontRef<'static>>> = Lazy::new(|| fontload::load_ui_font(true));
@@ -19,7 +19,6 @@ static FONT_BOLD: Lazy<Option<FontRef<'static>>> = Lazy::new(|| fontload::load_u
 pub fn measure(text: &str, px: f32, bold: bool) -> f32 {
     let font = if bold { &*FONT_BOLD } else { &*FONT_REGULAR };
     let Some(font) = font.as_ref() else {
-        // Fallback heuristic: CJK glyphs are square, ASCII roughly half-width.
         return text
             .chars()
             .map(|c| if c.is_ascii() { 0.55 * px } else { px })
@@ -31,6 +30,12 @@ pub fn measure(text: &str, px: f32, bold: bool) -> f32 {
     let mut width = 0.0;
     for (index, ch) in chars.iter().enumerate() {
         let id = font.glyph_id(*ch);
+        if id.0 == 0 {
+            // Missing from the embedded subset (e.g. dynamic city names);
+            // the renderer falls back to a system font, so estimate.
+            width += if ch.is_ascii() { 0.55 * px } else { px };
+            continue;
+        }
         width += scaled.h_advance(id);
         if let Some(next) = chars.get(index + 1) {
             width += scaled.kern(id, font.glyph_id(*next));
@@ -43,51 +48,67 @@ pub fn measure(text: &str, px: f32, bold: bool) -> f32 {
 pub struct FestivalFit {
     pub visible_text: String,
     pub more_count: usize,
-    pub hidden: Vec<String>,
+    pub cycle_festivals: Vec<String>,
 }
 
+fn badge_width(more_count: usize) -> f32 {
+    if more_count == 0 {
+        return 0.0;
+    }
+    measure(&format!("+{more_count}"), FESTIVAL_FONT_SIZE, true) + BADGE_H_PADDING
+}
+
+/// Fits at most one festival after the lunar title on the primary hero line.
 pub fn fit_festivals(lunar_title: &str, festivals: &[String]) -> FestivalFit {
     if festivals.is_empty() {
         return FestivalFit::default();
     }
 
-    let lunar_width =
-        measure(lunar_title, LUNAR_FONT_SIZE, true).min(INFO_WIDTH * LUNAR_MAX_RATIO);
-    // "·" separator after the lunar title: 6px margins each side, 16px glyph
-    let primary_sep = 6.0 + measure("·", 16.0, false) + 6.0;
-    let available = INFO_WIDTH - lunar_width - primary_sep;
+    let lunar_width = measure(lunar_title, LUNAR_FONT_SIZE, true).min(INFO_WIDTH * LUNAR_MAX_RATIO);
+    let primary_sep = 6.0 + measure("·", LUNAR_FONT_SIZE, false) + 6.0;
+    let available = (INFO_WIDTH - lunar_width - primary_sep).max(0.0);
+    let more_count = festivals.len().saturating_sub(1);
+    let badge = badge_width(more_count);
 
-    // separator between festival tags: 5px margins each side, 13px glyph
-    let tag_sep = 5.0 + measure("·", FESTIVAL_FONT_SIZE, false) + 5.0;
-    let widths: Vec<f32> = festivals
-        .iter()
-        .map(|f| measure(f, FESTIVAL_FONT_SIZE, true))
-        .collect();
-
-    let fits = |count: usize, overflow: usize| -> bool {
-        let mut width: f32 = widths[..count].iter().sum();
-        let mut seps = count.saturating_sub(1);
-        if overflow > 0 {
-            width += measure(&format!("+{overflow}"), FESTIVAL_FONT_SIZE, true);
-            seps += 1;
-        }
-        width += tag_sep * seps as f32;
-        width <= available
-    };
-
-    let mut count = festivals.len();
-    while count > 0 && !fits(count, 0) {
-        count -= 1;
-    }
-    if count < festivals.len() {
-        while count > 0 && !fits(count, festivals.len() - count) {
-            count -= 1;
+    let mut chosen = &festivals[0];
+    for festival in festivals {
+        let width = measure(festival, FESTIVAL_FONT_SIZE, true) + badge;
+        if width <= available {
+            chosen = festival;
+            break;
         }
     }
 
     FestivalFit {
-        visible_text: festivals[..count].join(" · "),
-        more_count: festivals.len() - count,
-        hidden: festivals[count..].to_vec(),
+        visible_text: chosen.clone(),
+        more_count,
+        cycle_festivals: festivals.to_vec(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_festivals() {
+        let fit = fit_festivals("五月初五", &[]);
+        assert!(fit.visible_text.is_empty());
+        assert_eq!(fit.more_count, 0);
+    }
+
+    #[test]
+    fn single_festival_no_overflow() {
+        let fit = fit_festivals("五月初五", &["端午节".to_string()]);
+        assert_eq!(fit.visible_text, "端午节");
+        assert_eq!(fit.more_count, 0);
+    }
+
+    #[test]
+    fn multiple_festivals_overflow_badge() {
+        let festivals = vec!["春节".to_string(), "元宵节".to_string(), "情人节".to_string()];
+        let fit = fit_festivals("五月初五", &festivals);
+        assert_eq!(fit.more_count, 2);
+        assert_eq!(fit.cycle_festivals.len(), 3);
     }
 }

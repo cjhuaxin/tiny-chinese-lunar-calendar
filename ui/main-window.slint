@@ -1,5 +1,5 @@
 import { Theme } from "theme.slint";
-import { DayCellData, WeekdayLabel, DayCellView, PinButton, TodayButton } from "components.slint";
+import { DayCellData, WeekdayLabel, DayCellView, PinButton, TodayButton, WeatherBadge, FestivalMoreBadge } from "components.slint";
 import { ScrollView } from "std-widgets.slint";
 
 export component MainWindow inherits Window {
@@ -20,6 +20,17 @@ export component MainWindow inherits Window {
     in property <string> meta-text;
     in property <string> workday-line;
     in property <bool> pinned: false;
+
+    // ─── weather ───
+    in property <bool> weather-visible: false;
+    in property <string> weather-city: "";
+    in property <string> weather-temp: "--";
+    in property <string> weather-feels-line: "";
+    in property <string> weather-range-line: "";
+    in property <string> weather-text: "";
+    in property <string> weather-icon-kind: "unknown";
+    in property <float> weather-tscale: 1.0;
+    in property <length> weather-content-w: 72px;
 
     // ─── month grid ───
     in property <string> year-text;
@@ -112,9 +123,6 @@ export component MainWindow inherits Window {
                         horizontal-stretch: 1;
 
                         // primary line: lunar title · festivals
-                        // All-CJK content: center-align every text so the
-                        // smaller festival label lines up with the "·"
-                        // (bottom alignment drifts across font sizes).
                         HorizontalLayout {
                             alignment: start;
                             spacing: 0;
@@ -125,7 +133,6 @@ export component MainWindow inherits Window {
                                 font-weight: 700;
                                 color: Theme.ink;
                                 overflow: elide;
-                                // 55% of the fixed 326px info column (window is not resizable)
                                 max-width: 179.3px;
                                 vertical-alignment: center;
                             }
@@ -146,17 +153,13 @@ export component MainWindow inherits Window {
                                 overflow: elide;
                                 vertical-alignment: center;
                             }
-                            if root.festivals-more > 0 : Text {
-                                text: " · +" + root.festivals-more;
-                                font-size: 13px;
-                                font-weight: 600;
-                                color: Theme.cinnabar;
-                                opacity: 0.72;
-                                vertical-alignment: center;
+                            if root.festivals-text != "" && root.festivals-more > 0 : Rectangle { width: 4px; }
+                            if root.festivals-more > 0 : FestivalMoreBadge {
+                                count: root.festivals-more;
                             }
                         }
 
-                        // secondary line: 生肖年 · 相对日期 · 法定假日/调休上班
+                        // secondary line: meta · workday (stable, no festivals)
                         if root.meta-text != "" || root.workday-line != "" : HorizontalLayout {
                             alignment: start;
                             spacing: 0;
@@ -186,22 +189,44 @@ export component MainWindow inherits Window {
                         }
                     }
 
-                    // actions column
-                    VerticalLayout {
-                        alignment: center;
+                    // weather + actions: tighter gap so the weather column
+                    // sits closer to the buttons.
+                    HorizontalLayout {
+                        // Pin glyph is inset ~5px in its 24px button, so 10px
+                        // here reads as the same visual gap as the 14px
+                        // between the date and lunar columns.
+                        spacing: 10px;
                         horizontal-stretch: 0;
-                        HorizontalLayout {
-                            spacing: 4px;
-                            VerticalLayout {
-                                alignment: center;
-                                PinButton {
-                                    pinned: root.pinned;
-                                    hero-hover: hero-ta.has-hover;
-                                    clicked => { root.toggle-pin(); }
+
+                        WeatherBadge {
+                            show-weather: root.weather-visible;
+                            city: root.weather-city;
+                            temp: root.weather-temp;
+                            feels-line: root.weather-feels-line;
+                            range-line: root.weather-range-line;
+                            text: root.weather-text;
+                            icon-kind: root.weather-icon-kind;
+                            tscale: root.weather-tscale;
+                            content-w: root.weather-content-w;
+                        }
+
+                        // actions column
+                        VerticalLayout {
+                            alignment: center;
+                            horizontal-stretch: 0;
+                            HorizontalLayout {
+                                spacing: 4px;
+                                VerticalLayout {
+                                    alignment: center;
+                                    PinButton {
+                                        pinned: root.pinned;
+                                        hero-hover: hero-ta.has-hover;
+                                        clicked => { root.toggle-pin(); }
+                                    }
                                 }
-                            }
-                            TodayButton {
-                                clicked => { root.go-today(); }
+                                TodayButton {
+                                    clicked => { root.go-today(); }
+                                }
                             }
                         }
                     }

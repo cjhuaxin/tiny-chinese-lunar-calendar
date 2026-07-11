@@ -89,6 +89,238 @@ export component DayCellView inherits Rectangle {
     }
 }
 
+export component FestivalMoreBadge inherits Rectangle {
+    in property <int> count;
+
+    visible: count > 0;
+    height: 18px;
+    min-width: 24px;
+    border-radius: 4px;
+    background: Theme.cinnabar-soft;
+
+    Text {
+        width: 100%;
+        height: 100%;
+        text: "+" + count;
+        font-size: 11px;
+        font-weight: 600;
+        color: Theme.cinnabar;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+export component WeatherIcon inherits Rectangle {
+    in property <string> kind; // sunny | cloudy | overcast | rain | snow | fog | wind | unknown
+
+    width: 18px;
+    height: 18px;
+    property <length> stroke-w: Math.max(1px, root.width / 15);
+
+    if kind == "sunny" : Path {
+        width: 100%;
+        height: 100%;
+        viewbox-width: 24;
+        viewbox-height: 24;
+        commands: "M 12 3 L 12 6 M 12 18 L 12 21 M 3 12 L 6 12 M 18 12 L 21 12 M 5.6 5.6 L 7.8 7.8 M 16.2 16.2 L 18.4 18.4 M 5.6 18.4 L 7.8 16.2 M 16.2 7.8 L 18.4 5.6 M 12 8 A 4 4 0 1 1 11.99 8";
+        stroke: Theme.ink-secondary;
+        stroke-width: root.stroke-w;
+        fill: transparent;
+    }
+    if kind == "cloudy" : Path {
+        width: 100%;
+        height: 100%;
+        viewbox-width: 24;
+        viewbox-height: 24;
+        commands: "M 7 18 A 4 4 0 0 1 7 10 A 5 5 0 0 1 17 9 A 3.5 3.5 0 0 1 17 16 Z";
+        stroke: Theme.ink-secondary;
+        stroke-width: root.stroke-w;
+        fill: transparent;
+    }
+    if kind == "overcast" : Path {
+        width: 100%;
+        height: 100%;
+        viewbox-width: 24;
+        viewbox-height: 24;
+        commands: "M 6 15 A 3 3 0 0 1 6 12 A 3.5 3.5 0 0 1 10 10 A 3 3 0 0 1 14 10 A 4 4 0 0 1 18 12 A 2.5 2.5 0 0 1 18 15 A 5.5 5.5 0 0 1 6 15 Z M 9 17 A 2.5 2.5 0 0 1 9 15 A 3 3 0 0 1 13 14 A 2.5 2.5 0 0 1 17 15 A 2 2 0 0 1 17 17 A 4 4 0 0 1 9 17 Z";
+        stroke: Theme.ink-secondary;
+        stroke-width: root.stroke-w;
+        fill: transparent;
+    }
+    if kind == "rain" : Path {
+        width: 100%;
+        height: 100%;
+        viewbox-width: 24;
+        viewbox-height: 24;
+        commands: "M 7 13 A 3 3 0 0 1 7 10 A 3.5 3.5 0 0 1 11 8 A 3 3 0 0 1 15 8 A 4 4 0 0 1 19 10 A 2.5 2.5 0 0 1 19 13 A 6 6 0 0 1 7 13 Z M 9 16 L 8 19 M 12 16 L 11 19 M 15 16 L 14 19";
+        stroke: Theme.ink-secondary;
+        stroke-width: root.stroke-w;
+        fill: transparent;
+    }
+    if kind == "snow" : Path {
+        width: 100%;
+        height: 100%;
+        viewbox-width: 24;
+        viewbox-height: 24;
+        commands: "M 7 13 A 3 3 0 0 1 7 10 A 3.5 3.5 0 0 1 11 8 A 3 3 0 0 1 15 8 A 4 4 0 0 1 19 10 A 2.5 2.5 0 0 1 19 13 A 6 6 0 0 1 7 13 Z M 9 16 L 9 19 M 12 15 L 12 19 M 15 16 L 15 19";
+        stroke: Theme.ink-secondary;
+        stroke-width: root.stroke-w;
+        fill: transparent;
+    }
+    if kind == "fog" : Path {
+        width: 100%;
+        height: 100%;
+        viewbox-width: 24;
+        viewbox-height: 24;
+        commands: "M 4 10 L 20 10 M 5 14 L 19 14 M 6 18 L 18 18";
+        stroke: Theme.ink-secondary;
+        stroke-width: root.stroke-w;
+        fill: transparent;
+    }
+    if kind == "wind" : Path {
+        width: 100%;
+        height: 100%;
+        viewbox-width: 24;
+        viewbox-height: 24;
+        commands: "M 4 9 L 16 9 A 2 2 0 1 0 14 7 M 4 14 L 18 14 A 2.5 2.5 0 1 1 15 11";
+        stroke: Theme.ink-secondary;
+        stroke-width: root.stroke-w;
+        fill: transparent;
+    }
+    if kind != "sunny" && kind != "cloudy" && kind != "overcast" && kind != "rain" && kind != "snow" && kind != "fog" && kind != "wind" : Path {
+        width: 100%;
+        height: 100%;
+        viewbox-width: 24;
+        viewbox-height: 24;
+        commands: "M 12 5 A 7 7 0 1 1 11.99 5";
+        stroke: Theme.ink-secondary;
+        stroke-width: root.stroke-w;
+        fill: transparent;
+    }
+}
+
+export component WeatherBadge inherits Rectangle {
+    in property <string> city;
+    in property <string> temp;
+    in property <string> feels-line; // "体感温度: 30°"
+    in property <string> range-line; // "27° ~ 35°"
+    in property <string> text; // loading / error hint
+    in property <string> icon-kind;
+    // Uniform shrink factor computed on the Rust side so the widest line
+    // still fits the fixed badge width.
+    in property <float> tscale: 1.0;
+    // Widest line extent (at base scale); the badge hugs its content so the
+    // gap to the action buttons stays consistent.
+    in property <length> content-w: 72px;
+    in property <bool> show-weather: true;
+
+    visible: root.show-weather;
+    width: root.has-data ? root.content-w * root.tscale : 72px;
+    horizontal-stretch: 0;
+
+    property <bool> has-data: root.temp != "--" && root.temp != "";
+
+    // 4-row stack modeled on the iOS weather widget: the condition icon sits
+    // beside the large temperature, freeing a row so text can run larger
+    // (location 0.33x, condition lines 0.29x of temp).
+    if root.has-data : stack := VerticalLayout {
+        property <length> content-h: (12px + 31px + 10.5px + 10.5px) * root.tscale + 3 * 2px;
+        x: 0;
+        width: parent.width;
+        // Taller than the layout slot: overflows symmetrically into the
+        // hero's vertical padding without changing the hero height.
+        y: (parent.height - self.content-h) / 2;
+        height: self.content-h;
+        spacing: 2px;
+
+        // Centered over the rendered "33°" text only (the icon hangs off to
+        // the right and shouldn't pull the city name over).
+        HorizontalLayout {
+            height: 12px * root.tscale;
+            width: temp-txt.width;
+            alignment: center;
+            Text {
+                text: root.city;
+                font-size: 10px * root.tscale;
+                font-weight: 700;
+                color: Theme.ink;
+                vertical-alignment: center;
+            }
+        }
+        HorizontalLayout {
+            height: 31px * root.tscale;
+            alignment: start;
+            spacing: 4px * root.tscale;
+
+            temp-txt := Text {
+                text: root.temp;
+                font-size: 30px * root.tscale;
+                font-weight: 600;
+                color: Theme.cinnabar;
+                vertical-alignment: center;
+            }
+            VerticalLayout {
+                alignment: center;
+                WeatherIcon {
+                    width: 16px * root.tscale;
+                    height: 16px * root.tscale;
+                    kind: root.icon-kind;
+                }
+            }
+        }
+        HorizontalLayout {
+            height: 10.5px * root.tscale;
+            alignment: start;
+            feels-txt := Text {
+                text: root.feels-line;
+                font-size: 8.7px * root.tscale;
+                color: Theme.ink-secondary;
+                vertical-alignment: center;
+            }
+        }
+        HorizontalLayout {
+            height: 10.5px * root.tscale;
+            width: feels-txt.width;
+            alignment: center;
+            Text {
+                text: root.range-line;
+                font-size: 8.7px * root.tscale;
+                color: Theme.ink-secondary;
+                vertical-alignment: center;
+            }
+        }
+    }
+
+    // Loading / error fallback: compact icon + status text.
+    if !root.has-data : HorizontalLayout {
+        alignment: center;
+        spacing: 6px;
+
+        WeatherIcon {
+            kind: root.icon-kind;
+        }
+
+        VerticalLayout {
+            alignment: center;
+            spacing: 1px;
+
+            Text {
+                text: root.temp;
+                font-size: 15px;
+                font-weight: 600;
+                color: Theme.ink-secondary;
+                opacity: 0.4;
+            }
+            if root.text != "" : Text {
+                text: root.text;
+                font-size: 11px;
+                color: Theme.ink-secondary;
+                overflow: elide;
+            }
+        }
+    }
+}
+
 export component PinButton inherits Rectangle {
     in property <bool> pinned;
     in property <bool> hero-hover;

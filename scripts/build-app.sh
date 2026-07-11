@@ -46,6 +46,17 @@ if [[ ! -f "$SPARKLE_PUBLIC_KEY_FILE" ]]; then
     exit 1
 fi
 
+if [[ -z "${QWEATHER_API_HOST:-}" || -z "${QWEATHER_KID:-}" || -z "${QWEATHER_PROJECT_ID:-}" ]] \
+    && [[ ! -f qweather.local.json ]] \
+    && [[ ! -f qweather.private.pem ]]; then
+    echo "error: QWeather JWT credentials not found." >&2
+    echo "  1. openssl genpkey -algorithm ED25519 -out qweather.private.pem" >&2
+    echo "  2. openssl pkey -pubout -in qweather.private.pem > qweather.public.pem" >&2
+    echo "  3. Upload qweather.public.pem to the QWeather console (JWT credential)" >&2
+    echo "  4. Copy qweather.local.example.json to qweather.local.json and fill api_host/kid/project_id" >&2
+    exit 1
+fi
+
 SPARKLE_PUBLIC_KEY="$(tr -d '[:space:]' < "$SPARKLE_PUBLIC_KEY_FILE")"
 
 CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$PWD/target}" SPARKLE_FRAMEWORK_DIR="$PWD" cargo build --release
@@ -120,6 +131,8 @@ cat > "$APP_DIR/Contents/Info.plist" <<PLIST
     <string>${SPARKLE_PUBLIC_KEY}</string>
     <key>SUEnableAutomaticChecks</key>
     <true/>
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>用于显示您所在城市的天气信息</string>
 </dict>
 </plist>
 PLIST

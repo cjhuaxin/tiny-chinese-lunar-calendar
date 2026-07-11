@@ -5,3 +5,5 @@
 /sparkle-bin
 /sparkle_private_key.txt
 .history
+qweather.local.json
+qweather.private.pem

@@ -57,6 +57,44 @@ pub struct MonthGrid {
     pub days: Vec<DayCell>,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WeatherSnapshot {
+    pub temp: String,
+    pub text: String,
+    pub icon_kind: String,
+    pub city: String,
+    #[serde(default)]
+    pub feels_like: String,
+    #[serde(default)]
+    pub temp_max: String,
+    #[serde(default)]
+    pub temp_min: String,
+    #[serde(default = "default_weather_available")]
+    pub available: bool,
+    #[serde(default)]
+    pub error_message: String,
+}
+
+fn default_weather_available() -> bool {
+    true
+}
+
+impl Default for WeatherSnapshot {
+    fn default() -> Self {
+        Self {
+            temp: "--".to_string(),
+            text: String::new(),
+            icon_kind: "unknown".to_string(),
+            city: String::new(),
+            feels_like: String::new(),
+            temp_max: String::new(),
+            temp_min: String::new(),
+            available: false,
+            error_message: String::new(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct DayDetail {
     pub date: String,
