@@ -4,6 +4,7 @@
 mod network;
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Mutex;
 use std::time::Duration;
 
 use once_cell::sync::OnceCell;
@@ -18,6 +19,16 @@ static USER_CHECK_GENERATION: AtomicU64 = AtomicU64::new(0);
 /// UI check from inside the DidFindValidUpdate delegate callback aborts with
 /// "check already in progress" and leaves our status dialog stuck.
 static PENDING_UI_HANDOFF: AtomicBool = AtomicBool::new(false);
+
+/// Version found by a *background* check, waiting for its session to finish
+/// before it becomes an actionable prompt.
+static BACKGROUND_FOUND_VERSION: Mutex<Option<String>> = Mutex::new(None);
+/// Version the user should be asked about the next time they open the
+/// calendar window.
+static PENDING_UPDATE_PROMPT: Mutex<Option<String>> = Mutex::new(None);
+/// Version already offered to the user this session, so re-opening the
+/// window doesn't nag about the same update again.
+static PROMPTED_VERSION: Mutex<Option<String>> = Mutex::new(None);
 
 fn user_awaiting_feedback() -> bool {
     USER_AWAITING_FEEDBACK.load(Ordering::SeqCst)
@@ -86,7 +97,8 @@ pub fn init() {
             });
         }
         Event::DidFindValidUpdate { item } => {
-            eprintln!("updater: update available: {}", item.version());
+            let version = item.version();
+            eprintln!("updater: update available: {version}");
             if user_awaiting_feedback() {
                 clear_user_feedback();
                 // Don't start the UI check here: this callback runs inside
@@ -94,6 +106,10 @@ pub fn init() {
                 // would abort the new session as "already in progress".
                 // Defer to DidFinishUpdateCycle.
                 PENDING_UI_HANDOFF.store(true, Ordering::SeqCst);
+            } else if let Ok(mut found) = BACKGROUND_FOUND_VERSION.lock() {
+                // Background discovery: remember it so the user is asked the
+                // next time the calendar window opens.
+                *found = Some(version);
             }
         }
         Event::DidAbortWithError { error } => {
@@ -131,6 +147,21 @@ pub fn init() {
                         let _ = sparkle.check_for_updates();
                     }
                 });
+            } else if let Some(version) = BACKGROUND_FOUND_VERSION
+                .lock()
+                .ok()
+                .and_then(|mut found| found.take())
+            {
+                // The background session (including any auto-download) is
+                // done; the prompt can now start a fresh UI session safely.
+                let already_prompted = PROMPTED_VERSION
+                    .lock()
+                    .is_ok_and(|v| v.as_deref() == Some(version.as_str()));
+                if !already_prompted {
+                    if let Ok(mut pending) = PENDING_UPDATE_PROMPT.lock() {
+                        *pending = Some(version);
+                    }
+                }
             }
         }
         Event::UserDidCancelDownload => {
@@ -165,6 +196,50 @@ fn run_sparkle_check(user_initiated: bool) {
 
     #[cfg(not(target_os = "macos"))]
     let _ = user_initiated;
+}
+
+/// Whether a background-discovered update is waiting to be offered.
+pub fn has_pending_update_prompt() -> bool {
+    PENDING_UPDATE_PROMPT
+        .lock()
+        .is_ok_and(|pending| pending.is_some())
+}
+
+/// Offers the background-discovered update through Sparkle's standard dialog
+/// (release notes + install / remind-later / skip choices). Call on the main
+/// thread when the calendar window opens. No-op if nothing is pending.
+pub fn prompt_pending_update() {
+    let Some(version) = PENDING_UPDATE_PROMPT
+        .lock()
+        .ok()
+        .and_then(|mut pending| pending.take())
+    else {
+        return;
+    };
+
+    #[cfg(target_os = "macos")]
+    {
+        let Some(sparkle) = SPARKLE.get() else {
+            return;
+        };
+        // A session still in flight (e.g. auto-download) would abort a new
+        // UI check; keep the prompt queued for the next window open instead.
+        if sparkle.session_in_progress().unwrap_or(false) {
+            if let Ok(mut pending) = PENDING_UPDATE_PROMPT.lock() {
+                *pending = Some(version);
+            }
+            return;
+        }
+        if let Ok(mut prompted) = PROMPTED_VERSION.lock() {
+            *prompted = Some(version.clone());
+        }
+        eprintln!("updater: offering downloaded update {version} to the user");
+        crate::tray::macos::activate_app();
+        let _ = sparkle.check_for_updates();
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    let _ = version;
 }
 
 /// Checks for updates in the background after startup.

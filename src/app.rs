@@ -412,6 +412,17 @@ impl App {
         let _ = main.show();
         self.ensure_weather_for_main(&main);
 
+        // A background check may have found (and pre-downloaded) an update;
+        // offer it now that the user is actively looking at the app. Delayed
+        // so the popover settles first; the Sparkle dialog takes focus, which
+        // auto-closes the unpinned popover - acceptable, the user is being
+        // routed into the update flow.
+        if crate::updater::has_pending_update_prompt() {
+            slint::Timer::single_shot(Duration::from_millis(700), || {
+                crate::updater::prompt_pending_update();
+            });
+        }
+
         // Deferred best-effort focus (the winit window is created a tick
         // after show()); auto-close itself relies on the global click monitor.
         {
