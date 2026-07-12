@@ -740,6 +740,17 @@ fn refresh_grid(main: &MainWindow, state: &Rc<State>) {
         Default::default()
     };
 
+    // Today's cell shows the *live* condition icon so it always matches the
+    // hero badge; the daily forecast icon can disagree with the current sky.
+    let live_icon: Option<String> = if settings.show_weather {
+        weather::current_weather()
+            .filter(|snapshot| snapshot.available && !snapshot.icon_kind.is_empty())
+            .map(|snapshot| snapshot.icon_kind.clone())
+            .filter(|kind| kind != "unknown")
+    } else {
+        None
+    };
+
     let cells: Vec<DayCellData> = grid
         .days
         .iter()
@@ -747,6 +758,10 @@ fn refresh_grid(main: &MainWindow, state: &Rc<State>) {
             // Outside-month days get weather too when the 30-day window
             // covers them; the cell renders them in the muted outside tint.
             let wx = forecast.get(&cell.date);
+            let icon = match (cell.is_today, &live_icon, wx) {
+                (true, Some(live), Some(_)) => live.clone(),
+                _ => wx.map(|(icon, _)| icon.clone()).unwrap_or_default(),
+            };
             DayCellData {
                 date: cell.date.clone().into(),
                 solar_day: cell.solar_day as i32,
@@ -758,7 +773,7 @@ fn refresh_grid(main: &MainWindow, state: &Rc<State>) {
                 is_selected: cell.is_selected,
                 is_weekend: cell.is_weekend,
                 workday_tag: cell.workday_tag.clone().unwrap_or_default().into(),
-                wx_icon: wx.map(|(icon, _)| icon.clone()).unwrap_or_default().into(),
+                wx_icon: icon.into(),
                 wx_temp: wx.map(|(_, temp)| temp.clone()).unwrap_or_default().into(),
             }
         })
