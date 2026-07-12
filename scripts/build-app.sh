@@ -127,7 +127,33 @@ cat > "$APP_DIR/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-codesign --force --sign - "$APP_DIR/Contents/Frameworks/Sparkle.framework"
-codesign --force --deep --sign - "$APP_DIR"
+# Resolve the code signing identity. A real identity (vs ad-hoc "-") is
+# required for macOS TCC grants (e.g. location) to survive app updates: the
+# permission is tied to the signature's designated requirement, and ad-hoc
+# signatures change on every build.
+CODESIGN_IDENTITY="${CODESIGN_IDENTITY:-}"
+if [[ -z "$CODESIGN_IDENTITY" && -f signing.local.json ]]; then
+    CODESIGN_IDENTITY="$(python3 -c 'import json;print(json.load(open("signing.local.json")).get("identity",""))' 2>/dev/null || true)"
+fi
+if [[ -z "$CODESIGN_IDENTITY" ]]; then
+    CODESIGN_IDENTITY="-"
+    echo "warning: no signing identity configured (CODESIGN_IDENTITY or signing.local.json)." >&2
+    echo "warning: falling back to ad-hoc signing; users will be re-asked for" >&2
+    echo "warning: location permission after every update." >&2
+fi
 
+# --timestamp embeds a secure timestamp so signatures stay valid after the
+# certificate expires (already-installed apps keep working). Not applicable
+# to ad-hoc signing.
+if [[ "$CODESIGN_IDENTITY" != "-" ]]; then
+    codesign --force --timestamp --sign "$CODESIGN_IDENTITY" "$APP_DIR/Contents/Frameworks/Sparkle.framework"
+    codesign --force --deep --timestamp --sign "$CODESIGN_IDENTITY" "$APP_DIR"
+else
+    codesign --force --sign - "$APP_DIR/Contents/Frameworks/Sparkle.framework"
+    codesign --force --deep --sign - "$APP_DIR"
+fi
+
+if [[ "$CODESIGN_IDENTITY" != "-" ]]; then
+    echo "Signed with: $CODESIGN_IDENTITY"
+fi
 echo "Built $APP_DIR (version $VERSION, build $BUILD_NUMBER)"

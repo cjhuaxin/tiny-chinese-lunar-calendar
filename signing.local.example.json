@@ -1,0 +1,4 @@
+{
+  "_comment": "Copy to signing.local.json. Find identities with: security find-identity -v -p codesigning",
+  "identity": "Apple Development: cjhuaxin@qq.com (AA9746577M)"
+}
