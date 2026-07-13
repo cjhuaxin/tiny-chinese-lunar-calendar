@@ -102,46 +102,6 @@ pub fn show_about_panel() {
     );
 }
 
-/// Shows a concise, centered "already up to date" dialog.
-pub fn show_up_to_date_alert(version: &str) {
-    let Some(mtm) = MainThreadMarker::new() else {
-        return;
-    };
-    show_about_style_panel("已是最新版本", version, true, mtm);
-}
-
-/// Shows a concise error dialog when the update feed cannot be fetched.
-pub fn show_update_error_alert() {
-    let Some(mtm) = MainThreadMarker::new() else {
-        return;
-    };
-    show_about_style_panel("无法检查更新", "网络连接失败，请检查网络或代理", true, mtm);
-}
-
-/// Shows immediate feedback while Sparkle fetches the appcast.
-pub fn show_checking_update_alert() {
-    let Some(mtm) = MainThreadMarker::new() else {
-        return;
-    };
-    show_about_style_panel("正在检查更新", "请稍候…", true, mtm);
-}
-
-/// Closes the shared About panel used for update status dialogs, e.g. when
-/// handing off from "正在检查更新" to Sparkle's own update window.
-pub fn close_update_status_panel() {
-    let Some(mtm) = MainThreadMarker::new() else {
-        return;
-    };
-    let app = NSApplication::sharedApplication(mtm);
-    for window in app.windows().iter() {
-        // The standard About panel is a private NSAboutPanel subclass.
-        let is_about = window.class().name().to_str().is_ok_and(|n| n.contains("About"));
-        if is_about {
-            window.orderOut(None);
-        }
-    }
-}
-
 /// Forces tray menu icons into monochrome template rendering, matching the system Quit item.
 pub fn apply_tray_menu_icon_style(menu: &tray_icon::menu::Menu) {
     use tray_icon::menu::ContextMenu;
