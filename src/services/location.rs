@@ -18,6 +18,9 @@ mod macos {
     const MAX_LOCATION_ATTEMPTS: u32 = 6;
     const RETRY_DELAY_MS: u64 = 2000;
     const LOCATION_TIMEOUT_MS: u64 = 30_000;
+    /// Last-known fixes older than this are ignored; they may predate a
+    /// commute and would otherwise short-circuit a fresh location request.
+    const MAX_FIX_AGE_SECS: f64 = 10.0 * 60.0;
 
     thread_local! {
         static PENDING_CALLBACK: RefCell<Option<Box<dyn FnOnce(LocationResult) + Send>>> =
@@ -26,7 +29,6 @@ mod macos {
             const { RefCell::new(None) };
         static LOCATION_DELEGATE: RefCell<Option<Retained<LocationDelegate>>> =
             const { RefCell::new(None) };
-        static SESSION_COORDS: RefCell<Option<(f64, f64)>> = const { RefCell::new(None) };
         static REQUEST_IN_FLIGHT: RefCell<bool> = const { RefCell::new(false) };
         static LOCATION_ATTEMPTS: RefCell<u32> = const { RefCell::new(0) };
     }
@@ -46,14 +48,13 @@ mod macos {
     }
 
     fn store_coords(lat: f64, lon: f64) {
-        SESSION_COORDS.with(|cell| *cell.borrow_mut() = Some((lat, lon)));
         weather::store_coordinates(lat, lon, weather::CoordSource::CoreLocation);
     }
 
+    // No in-process cache on top: the disk cache carries the TTL (1h for
+    // CoreLocation fixes), so a long-running tray process re-locates when
+    // the user may have moved (e.g. home → office).
     fn cached_coords() -> Option<(f64, f64)> {
-        if let Some(coords) = SESSION_COORDS.with(|cell| *cell.borrow()) {
-            return Some(coords);
-        }
         weather::cached_coordinates()
     }
 
@@ -85,6 +86,10 @@ mod macos {
 
     fn try_last_known_location(manager: &CLLocationManager) -> Option<(f64, f64)> {
         let location = unsafe { manager.location() }?;
+        let age_secs = -unsafe { location.timestamp() }.timeIntervalSinceNow();
+        if age_secs > MAX_FIX_AGE_SECS {
+            return None;
+        }
         let coord = unsafe { location.coordinate() };
         Some((coord.latitude, coord.longitude))
     }
