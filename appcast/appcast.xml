@@ -2,14 +2,14 @@
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
     <channel>
         <title>小小万年历</title>
-        <link>https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/releases/tag/v0.3.3</link>
+        <link>https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/releases/tag/v0.3.4</link>
         <description>Most recent updates to 小小万年历</description>
         <language>zh-cn</language>
         <item>
-            <title>Version 0.3.3</title>
-            <link>https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/releases/tag/v0.3.3</link>
-            <sparkle:version>245</sparkle:version>
-            <sparkle:shortVersionString>0.3.3</sparkle:shortVersionString>
+            <title>Version 0.3.4</title>
+            <link>https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/releases/tag/v0.3.4</link>
+            <sparkle:version>249</sparkle:version>
+            <sparkle:shortVersionString>0.3.4</sparkle:shortVersionString>
             <description><![CDATA[<!DOCTYPE html><html><head><meta charset="utf-8"><style>
 body {
     font-family: -apple-system, "PingFang SC", sans-serif;
@@ -40,38 +40,29 @@ hr { border: none; border-top: 1px solid rgba(61, 46, 31, 0.15); margin: 14px 0;
     hr { border-top-color: rgba(232, 226, 216, 0.2); }
 }
 </style></head><body>
-<h2>✨ 小小万年历 0.3.3</h2>
-<p>更新体验与定位授权专项修复。</p>
+<h2>✨ 小小万年历 0.3.4</h2>
+<p>定位刷新修复:换了地方,天气跟着走。</p>
 <hr>
-<h3>🔄 更新体验修复与增强</h3>
+<h3>📍 定位不再"卡"在老地方</h3>
 <ul>
-<li>修复手动"检查更新"时窗口卡在"正在检查更新"的问题</li>
-<li>后台发现新版本后,打开日历时会弹出更新对话框,由你决定是否升级,不再全程静默</li>
-<li>同一版本每次运行只提醒一次,选择"稍后"不会被反复打扰</li>
-</ul>
-<h3>📍 定位授权不再重复弹窗</h3>
-<ul>
-<li>应用改用固定开发者身份签名,定位授权在版本升级后继续有效</li>
-<li><strong>升级到本版本后,系统会最后询问一次定位授权</strong>,此后的版本更新不再重复询问</li>
-</ul>
-<h3>🎨 细节修正</h3>
-<ul>
-<li>今天格子的天气图标与顶部今日天气保持一致(均为实时天气)</li>
+<li>修复应用长期运行时定位永不刷新的问题(比如早上从家到公司,天气却一直显示家里)</li>
+<li>定位结果 1 小时后自动过期并重新定位,打开日历即可看到当前所在地的天气</li>
+<li>忽略系统缓存中超过 10 分钟的旧位置,确保拿到的是新鲜定位</li>
 </ul>
 <hr>
 <h3>📦 安装与升级</h3>
 <ul>
 <li><strong>0.3.x 用户</strong>:点击菜单栏图标 → 检查更新,即可自动升级</li>
-<li><strong>0.2.5 及更早版本</strong>:请手动下载下方 <strong>xiaoxiao-wannianli-0.3.3.dmg</strong> 安装,之后即可恢复自动更新</li>
+<li><strong>0.2.5 及更早版本</strong>:请手动下载下方 <strong>xiaoxiao-wannianli-0.3.4.dmg</strong> 安装,之后即可恢复自动更新</li>
 </ul>
 <hr>
-<p><strong>完整变更</strong>: <a href="https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/compare/v0.3.2...v0.3.3">https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/compare/v0.3.2...v0.3.3</a></p>
+<p><strong>完整变更</strong>: <a href="https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/compare/v0.3.3...v0.3.4">https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/compare/v0.3.3...v0.3.4</a></p>
 </body></html>]]></description>
-            <pubDate>Sun, 12 Jul 2026 09:10:02 +0000</pubDate>
+            <pubDate>Mon, 13 Jul 2026 07:18:05 +0000</pubDate>
             <enclosure
-                url="https://tclc-updates.cjhuaxin.cc/releases/xiaoxiao-wannianli-0.3.3.zip"
-                sparkle:edSignature="ppvnw0IagrwGtUQav6gKWkCR/clT/3Ah//lD8L5wdB9KzpHRwBhhVZd6v4jBYxWIf7yCMMMhMFWtHgtxDn3MAg=="
-                length="10072911"
+                url="https://tclc-updates.cjhuaxin.cc/releases/xiaoxiao-wannianli-0.3.4.zip"
+                sparkle:edSignature="yV8gQsR05zGw/WfCEfbCK6B8C5mri7PvoGxO1SlD35ESd9e6DfH6Is5meLZUUuhRnvHvnHIQieortcSbuGuoCQ=="
+                length="10073605"
                 type="application/octet-stream" />
         </item>
     </channel>
