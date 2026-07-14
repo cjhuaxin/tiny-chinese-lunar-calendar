@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>小小万年历 — 轻巧的 macOS 菜单栏农历万年历 | Chinese Lunar Calendar for Mac</title>
+<meta name="description" content="小小万年历是一款免费开源的 macOS 菜单栏农历日历应用:农历日期、二十四节气、法定节假日休班标记、实时天气一目了然。Rust 原生渲染,内存占用极低。A free, open-source Chinese lunar calendar app for the macOS menu bar.">
+<meta name="keywords" content="mac 农历, macOS 万年历, 菜单栏日历, 农历日历 mac, 节气, 法定节假日, lunar calendar mac, chinese calendar macos, menu bar calendar">
+<link rel="canonical" href="https://tclc.cjhuaxin.cc/">
+<link rel="icon" type="image/png" href="app_icon.png">
+
+<!-- Open Graph -->
+<meta property="og:type" content="website">
+<meta property="og:title" content="小小万年历 — 轻巧的 macOS 菜单栏农历万年历">
+<meta property="og:description" content="农历、节气、法定节假日、实时天气,一眼看清。免费开源,Rust 原生渲染,内存占用极低。">
+<meta property="og:url" content="https://tclc.cjhuaxin.cc/">
+<meta property="og:image" content="https://tclc.cjhuaxin.cc/screenshot-main.png">
+<meta property="og:locale" content="zh_CN">
+<meta name="twitter:card" content="summary_large_image">
+
+<!-- Structured data -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "小小万年历 (Tiny Chinese Lunar Calendar)",
+  "operatingSystem": "macOS",
+  "applicationCategory": "UtilitiesApplication",
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "CNY" },
+  "downloadUrl": "https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/releases/latest",
+  "softwareVersion": "0.3.5",
+  "description": "常驻 macOS 菜单栏的中国农历日历:农历、二十四节气、法定节假日休班标记、实时天气。免费开源,Rust + Slint 原生渲染。",
+  "screenshot": "https://tclc.cjhuaxin.cc/screenshot-main.png",
+  "author": { "@type": "Person", "name": "cjhuaxin", "url": "https://github.com/cjhuaxin" }
+}
+</script>
+
+<style>
+:root {
+  --cream: #f7ecdf;
+  --cream-deep: #f1e2cf;
+  --ink: #3d2e1f;
+  --ink-secondary: #8a715c;
+  --cinnabar: #c8553d;
+  --cinnabar-deep: #b04531;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, "PingFang SC", "Hiragino Sans GB", sans-serif;
+  background: var(--cream);
+  color: var(--ink);
+  line-height: 1.7;
+}
+.wrap { max-width: 880px; margin: 0 auto; padding: 0 24px; }
+header { text-align: center; padding: 72px 0 40px; }
+header img.icon { width: 112px; height: 112px; border-radius: 24px; box-shadow: 0 8px 24px rgba(61,46,31,.15); }
+h1 { font-size: 2.2rem; margin: 20px 0 8px; }
+.tagline { font-size: 1.15rem; color: var(--ink-secondary); }
+.tagline-en { font-size: .95rem; color: var(--ink-secondary); margin-top: 4px; }
+.actions { margin: 28px 0 8px; display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+.btn {
+  display: inline-block; padding: 12px 28px; border-radius: 12px;
+  font-size: 1rem; font-weight: 600; text-decoration: none; transition: transform .15s, box-shadow .15s;
+}
+.btn-primary { background: var(--cinnabar); color: #fff; box-shadow: 0 4px 14px rgba(200,85,61,.35); }
+.btn-primary:hover { background: var(--cinnabar-deep); transform: translateY(-1px); }
+.btn-ghost { border: 1.5px solid var(--cinnabar); color: var(--cinnabar); }
+.btn-ghost:hover { background: rgba(200,85,61,.08); }
+.hint { font-size: .85rem; color: var(--ink-secondary); }
+.shot { display: block; margin: 48px auto; max-width: 640px; width: 100%; border-radius: 16px; box-shadow: 0 16px 48px rgba(61,46,31,.18); }
+section { padding: 32px 0; }
+h2 { font-size: 1.5rem; margin-bottom: 20px; text-align: center; }
+.features { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 18px; }
+.card { background: #fffdf9; border: 1px solid var(--cream-deep); border-radius: 14px; padding: 20px 22px; }
+.card h3 { font-size: 1.05rem; margin-bottom: 6px; }
+.card p { font-size: .92rem; color: var(--ink-secondary); }
+.en-block { background: var(--cream-deep); border-radius: 14px; padding: 24px 28px; font-size: .95rem; }
+footer { text-align: center; padding: 40px 0 56px; font-size: .88rem; color: var(--ink-secondary); }
+footer a { color: var(--cinnabar); text-decoration: none; }
+</style>
+</head>
+<body>
+
+<header class="wrap">
+  <img class="icon" src="app_icon.png" alt="小小万年历应用图标" width="112" height="112">
+  <h1>小小万年历</h1>
+  <p class="tagline">轻巧的 macOS 菜单栏农历万年历</p>
+  <p class="tagline-en">A tiny Chinese lunar calendar for your Mac's menu bar</p>
+  <div class="actions">
+    <a class="btn btn-primary" href="https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/releases/latest">免费下载 DMG</a>
+    <a class="btn btn-ghost" href="https://github.com/cjhuaxin/tiny-chinese-lunar-calendar">GitHub 源码</a>
+  </div>
+  <p class="hint">免费 · 开源 · 支持 Apple Silicon 与 Intel · 自动更新</p>
+</header>
+
+<img class="shot" src="screenshot-main.png" alt="小小万年历主界面:macOS 菜单栏弹出的农历月历,含节气、法定节假日休班标记与每日天气" loading="lazy">
+
+<section class="wrap">
+  <h2>功能一览</h2>
+  <div class="features">
+    <div class="card"><h3>📅 公历 + 农历双历</h3><p>月历中每一天同时标注农历日期,覆盖 1925–2125 共两百年。</p></div>
+    <div class="card"><h3>🏮 节气与传统节日</h3><p>二十四节气、农历传统节日、公历/国际节日一目了然。</p></div>
+    <div class="card"><h3>🇨🇳 法定节假日标记</h3><p>「休 / 班」角标每日自动更新,调休安排不再翻公告。</p></div>
+    <div class="card"><h3>🌤️ 实时天气与预报</h3><p>今日栏显示所在地实时温度与体感温度,每个日期格标注天气图标与高低温。</p></div>
+    <div class="card"><h3>🖼️ 动态菜单栏图标</h3><p>图标实时显示星期与日期,无需点开即可看今天。</p></div>
+    <div class="card"><h3>⚡ 原生轻量</h3><p>Rust + Slint 原生渲染,非 Electron,启动快、体积小、内存占用极低。</p></div>
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>English</h2>
+  <div class="en-block">
+    <p><strong>Tiny Chinese Lunar Calendar</strong> is a free, open-source lunar calendar app that lives in the macOS menu bar. One click pops up a full month view with Chinese lunar dates (农历), the 24 solar terms, traditional festivals, official PRC public-holiday markers, and live weather with a daily forecast. Built with Rust + Slint for native rendering — instant startup and a tiny memory footprint. Works on Apple Silicon and Intel Macs.</p>
+  </div>
+</section>
+
+<footer class="wrap">
+  <p>© 2026 <a href="https://github.com/cjhuaxin">cjhuaxin</a> · <a href="https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/releases">版本历史</a> · <a href="https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/issues">反馈问题</a></p>
+</footer>
+
+</body>
+</html>
