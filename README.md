@@ -53,12 +53,25 @@ Built with **Rust + Slint** for native rendering — instant startup, small bina
 
 ## 🚀 快速开始
 
-### 环境要求
+### 安装(推荐)
+
+通过 [Homebrew](https://brew.sh/) 一键安装:
+
+```bash
+brew tap cjhuaxin/tap
+brew install --cask xiaoxiao-wannianli
+```
+
+或者从 [Releases](https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/releases/latest) 下载最新 DMG,拖入「应用程序」即可。应用内置自动更新。
+
+### 从源码运行
+
+#### 环境要求
 
 - macOS
 - [Rust 工具链](https://rustup.rs/)(stable)
 
-### 运行
+#### 运行
 
 ```bash
 # 运行,托盘图标出现在菜单栏
@@ -71,7 +84,7 @@ TCLC_SHOW=1 cargo run
 cargo test
 ```
 
-### 构建 .app
+#### 构建 .app
 
 ```bash
 ./scripts/build-app.sh
