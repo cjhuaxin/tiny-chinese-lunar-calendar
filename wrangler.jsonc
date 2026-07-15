@@ -1,0 +1,10 @@
+// Cloudflare Workers config: serves the static landing page in site/
+// as a Worker with static assets (no build step needed).
+{
+  "name": "tiny-chinese-lunar-calendar",
+  "compatibility_date": "2026-07-15",
+  "assets": {
+    "directory": "./site",
+    "html_handling": "auto-trailing-slash"
+  }
+}
