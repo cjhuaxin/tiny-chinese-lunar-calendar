@@ -402,6 +402,7 @@ export component PinButton inherits Rectangle {
 }
 
 export component TodayButton inherits Rectangle {
+    in property <bool> highlight: false;
     callback clicked;
 
     width: 34px;
@@ -409,7 +410,9 @@ export component TodayButton inherits Rectangle {
     border-radius: Theme.radius-btn;
     border-width: 1.5px;
     border-color: Theme.cinnabar;
-    background: ta.has-hover ? Theme.cinnabar-hover-soft : transparent;
+    background: highlight ? Theme.cinnabar-hover-soft
+        : ta.has-hover ? Theme.cinnabar-hover-soft
+        : transparent;
     animate background { duration: 150ms; easing: ease; }
 
     ta := TouchArea {

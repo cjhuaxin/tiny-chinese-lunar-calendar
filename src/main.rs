@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod app;
+mod auto_return;
 mod fontload;
 mod models;
 mod services;
@@ -134,7 +135,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         tray::icon::set_date_changed_handler(|| {
             with_app(|app| {
                 if let Some(main) = app.main_handle() {
-                    app::refresh_all(&main, &app.state);
+                    app::handle_date_rollover(&main, &app.state);
                 }
             });
         });

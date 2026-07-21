@@ -9,3 +9,6 @@ qweather.local.json
 qweather.private.pem
 r2.local.json
 signing.local.json
+
+# Brainstorm mockups
+.superpowers/

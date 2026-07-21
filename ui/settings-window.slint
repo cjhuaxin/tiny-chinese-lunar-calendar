@@ -109,7 +109,7 @@ component SettingsButton inherits Rectangle {
 
 export component SettingsWindow inherits Window {
     width: 400px;
-    height: 580px;
+    height: 680px;
     title: "偏好设置";
     no-frame: true;
     always-on-top: true;
@@ -122,6 +122,8 @@ export component SettingsWindow inherits Window {
     in-out property <bool> draft-show-weather;
     // false => 节气优先, true => 国际节日优先
     in-out property <bool> draft-priority-intl;
+    // 5 | 15 | 30 minutes before auto-returning to today
+    in-out property <int> draft-auto-return-minutes: 5;
 
     callback save();
     callback cancel();
@@ -228,6 +230,38 @@ export component SettingsWindow inherits Window {
                         font-size: 12px;
                         color: Theme.ink-muted;
                     }
+                    Rectangle { height: 8px; }
+                    Text {
+                        text: "闲置后自动回到今天";
+                        font-size: 13px;
+                        font-weight: 600;
+                        color: Theme.ink;
+                    }
+                    OptionRow {
+                        radio: true;
+                        text: "5 分钟";
+                        checked: root.draft-auto-return-minutes == 5;
+                        toggled => { root.draft-auto-return-minutes = 5; }
+                    }
+                    OptionRow {
+                        radio: true;
+                        text: "15 分钟";
+                        checked: root.draft-auto-return-minutes == 15;
+                        toggled => { root.draft-auto-return-minutes = 15; }
+                    }
+                    OptionRow {
+                        radio: true;
+                        text: "30 分钟";
+                        checked: root.draft-auto-return-minutes == 30;
+                        toggled => { root.draft-auto-return-minutes = 30; }
+                    }
+                    Text {
+                        text: "离开当前视图超过设定时间、跨日或关闭后再打开时，自动跳回今天";
+                        font-size: 12px;
+                        color: Theme.ink-muted;
+                        wrap: word-wrap;
+                    }
+
                     if root.draft-show-intl : Rectangle {
                         border-radius: 10px;
                         background: #3d2e1f0a; // rgba(61,46,31,0.04)

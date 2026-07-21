@@ -8,6 +8,10 @@ use std::time::Duration;
 use chrono::{Datelike, Local, NaiveDate};
 use slint::{ComponentHandle, VecModel};
 
+use crate::auto_return::{
+    self, is_at_today_view, months_from_today, should_return_on_date_change,
+    should_return_on_reopen, IdleCheck, AUTO_RETURN_POLL,
+};
 use crate::models::{AppSettings, CalendarLabelPriority, DayDetail};
 use crate::services::calendar::{build_day_detail, build_month_grid};
 use crate::services::{holiday, location, weather};
@@ -37,6 +41,7 @@ pub struct App {
     pub state: Rc<State>,
     _cycle_timer: slint::Timer,
     _refresh_timer: slint::Timer,
+    _auto_return_timer: slint::Timer,
 }
 
 pub struct State {
@@ -60,6 +65,12 @@ pub struct State {
     /// click right after (the click itself stole focus) means "close", so the
     /// toggle must not immediately re-open the window.
     auto_hidden_at: Cell<Option<std::time::Instant>>,
+    /// When the calendar popover was last hidden; used for reopen auto-return.
+    hidden_at: Cell<Option<std::time::Instant>>,
+    /// Last user interaction (navigation, selection, pin, etc.).
+    last_interaction_at: Cell<std::time::Instant>,
+    /// Last month/day navigation; starts a short cooldown before idle reset.
+    last_navigation_at: Cell<std::time::Instant>,
     /// Remaining corrections for the freshly shown window: macOS/Slint move
     /// the just-created window shortly after our placement, so the Moved
     /// handler shoves it back to the tray anchor a limited number of times.
@@ -109,11 +120,33 @@ fn today() -> NaiveDate {
     Local::now().date_naive()
 }
 
+impl State {
+    fn touch_interaction(&self) {
+        self.last_interaction_at.set(std::time::Instant::now());
+    }
+
+    fn touch_navigation(&self) {
+        let now = std::time::Instant::now();
+        self.last_interaction_at.set(now);
+        self.last_navigation_at.set(now);
+    }
+
+    fn at_today_view(&self) -> bool {
+        is_at_today_view(
+            self.focused_year.get(),
+            self.focused_month.get(),
+            *self.selected_date.borrow(),
+            today(),
+        )
+    }
+}
+
 impl App {
     pub fn new() -> Result<Rc<Self>, slint::PlatformError> {
         let settings_win = SettingsWindow::new()?;
 
         let now = today();
+        let now_instant = std::time::Instant::now();
         let state = Rc::new(State {
             focused_year: Cell::new(now.year()),
             focused_month: Cell::new(now.month()),
@@ -128,6 +161,9 @@ impl App {
             tray_anchor: Cell::new(None),
             shown_at: Cell::new(None),
             auto_hidden_at: Cell::new(None),
+            hidden_at: Cell::new(None),
+            last_interaction_at: Cell::new(now_instant),
+            last_navigation_at: Cell::new(now_instant),
             pos_corrections: Cell::new(0),
         });
 
@@ -160,9 +196,29 @@ impl App {
                             return;
                         };
                         if state.last_refresh_date.get() != today() {
-                            refresh_all(&main, &state);
+                            handle_date_rollover(&main, &state);
                         } else {
                             refresh_detail(&main, &state);
+                        }
+                    });
+                },
+            );
+        }
+
+        let auto_return_timer = slint::Timer::default();
+        {
+            let state = state.clone();
+            auto_return_timer.start(
+                slint::TimerMode::Repeated,
+                AUTO_RETURN_POLL,
+                move || {
+                    let state = state.clone();
+                    with_app(move |app| {
+                        let Some(main) = app.main_handle() else {
+                            return;
+                        };
+                        if main.window().is_visible() {
+                            maybe_auto_return_idle(&main, &state);
                         }
                     });
                 },
@@ -175,6 +231,7 @@ impl App {
             state,
             _cycle_timer: cycle_timer,
             _refresh_timer: refresh_timer,
+            _auto_return_timer: auto_return_timer,
         });
 
         app.wire_settings_callbacks();
@@ -208,6 +265,7 @@ impl App {
         if let Some(main) = self.main.borrow_mut().take() {
             let _ = main.window().hide();
         }
+        self.state.hidden_at.set(Some(std::time::Instant::now()));
         release_malloc_pages();
     }
 
@@ -224,6 +282,7 @@ impl App {
                     *state.selected_date.borrow_mut() = Some(parsed);
                     state.focused_year.set(parsed.year());
                     state.focused_month.set(parsed.month());
+                    state.touch_navigation();
                     refresh_all(&main, &state);
                 }
             });
@@ -241,6 +300,7 @@ impl App {
                     + delta;
                 let year = total.div_euclid(12);
                 let month = (total.rem_euclid(12) + 1) as u32;
+                state.touch_navigation();
                 apply_year_month(&main, &state, year, month);
             });
         }
@@ -252,11 +312,8 @@ impl App {
                 let Some(main) = main_weak.upgrade() else {
                     return;
                 };
-                let now = today();
-                state.focused_year.set(now.year());
-                state.focused_month.set(now.month());
-                *state.selected_date.borrow_mut() = None;
-                refresh_all(&main, &state);
+                state.touch_interaction();
+                go_today(&main, &state);
             });
         }
 
@@ -269,6 +326,7 @@ impl App {
                 };
                 let next = !state.pinned.get();
                 state.pinned.set(next);
+                state.touch_interaction();
                 main.set_pinned(next);
             });
         }
@@ -280,6 +338,7 @@ impl App {
                 let Some(main) = main_weak.upgrade() else {
                     return;
                 };
+                state.touch_navigation();
                 apply_year_month(&main, &state, year, month as u32);
             });
         }
@@ -316,6 +375,9 @@ impl App {
                         CalendarLabelPriority::SolarTerm
                     },
                     show_weather: win.get_draft_show_weather(),
+                    auto_return_minutes: auto_return::normalize_auto_return_minutes(
+                        win.get_draft_auto_return_minutes() as u8,
+                    ),
                 };
                 if let Err(err) = save_settings(&new_settings) {
                     eprintln!("failed to save settings: {err}");
@@ -401,6 +463,10 @@ impl App {
             return;
         };
 
+        maybe_auto_return_on_reopen(&main, &self.state);
+        self.state.touch_interaction();
+        self.state.hidden_at.set(None);
+
         self.state.shown_at.set(Some(std::time::Instant::now()));
         // Budget for the Moved-event watchdog. The window is created at the
         // right position, but ~100ms after showing, something inside the
@@ -466,6 +532,8 @@ impl App {
             settings.calendar_label_priority,
             CalendarLabelPriority::InternationalFestival
         ));
+        self.settings_win
+            .set_draft_auto_return_minutes(i32::from(settings.auto_return_minutes));
 
         // NOTE: no pending-geometry trick here. The settings component lives
         // for the whole app, so the attributes hook only ran once at startup;
@@ -701,6 +769,83 @@ fn apply_year_month(main: &MainWindow, state: &Rc<State>, year: i32, month: u32)
         *state.selected_date.borrow_mut() = NaiveDate::from_ymd_opt(year, month, 1);
     }
     refresh_all(main, state);
+}
+
+/// Jump the calendar view to today (current month, no day selection).
+pub fn go_today(main: &MainWindow, state: &Rc<State>) {
+    let now = today();
+    state.focused_year.set(now.year());
+    state.focused_month.set(now.month());
+    *state.selected_date.borrow_mut() = None;
+    refresh_all(main, state);
+}
+
+fn auto_go_today_animated(main: &MainWindow, state: &Rc<State>) {
+    if state.at_today_view() {
+        return;
+    }
+    main.set_grid_opacity(0.55);
+    go_today(main, state);
+    main.set_hero_emphasis(true);
+    main.set_today_highlight(true);
+    main.set_grid_opacity(1.0);
+    state.touch_interaction();
+
+    let main_weak = main.as_weak();
+    slint::Timer::single_shot(Duration::from_millis(150), move || {
+        if let Some(main) = main_weak.upgrade() {
+            main.set_hero_emphasis(false);
+        }
+    });
+    let main_weak = main.as_weak();
+    slint::Timer::single_shot(Duration::from_secs(1), move || {
+        if let Some(main) = main_weak.upgrade() {
+            main.set_today_highlight(false);
+        }
+    });
+}
+
+fn maybe_auto_return_on_reopen(main: &MainWindow, state: &Rc<State>) {
+    let minutes =
+        auto_return::normalize_auto_return_minutes(state.settings.borrow().auto_return_minutes);
+    if should_return_on_reopen(
+        state.hidden_at.get(),
+        minutes,
+        state.at_today_view(),
+        std::time::Instant::now(),
+    ) {
+        go_today(main, state);
+    }
+}
+
+fn maybe_auto_return_idle(main: &MainWindow, state: &Rc<State>) {
+    let minutes =
+        auto_return::normalize_auto_return_minutes(state.settings.borrow().auto_return_minutes);
+    let now = std::time::Instant::now();
+    let check = IdleCheck {
+        auto_return_minutes: minutes,
+        last_interaction: state.last_interaction_at.get(),
+        last_navigation: state.last_navigation_at.get(),
+        months_away: months_from_today(
+            state.focused_year.get(),
+            state.focused_month.get(),
+            today(),
+        ),
+        picker_open: main.get_picker_open(),
+        now,
+    };
+    if check.should_return() {
+        auto_go_today_animated(main, state);
+    }
+}
+
+/// Called when the local date rolls over while the popover is open.
+pub fn handle_date_rollover(main: &MainWindow, state: &Rc<State>) {
+    if should_return_on_date_change(state.at_today_view(), main.get_picker_open()) {
+        go_today(main, state);
+    } else {
+        refresh_all(main, state);
+    }
 }
 
 pub fn refresh_all(main: &MainWindow, state: &Rc<State>) {

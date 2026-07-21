@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::PathBuf;
 
+use crate::auto_return;
 use crate::models::AppSettings;
 
 pub const BUNDLE_ID: &str = "com.cjhuaxin.tclc";
@@ -25,10 +26,13 @@ pub fn load_settings() -> AppSettings {
     if !path.exists() {
         return AppSettings::default();
     }
-    fs::read_to_string(&path)
+    let mut settings = fs::read_to_string(&path)
         .ok()
-        .and_then(|content| serde_json::from_str(&content).ok())
-        .unwrap_or_default()
+        .and_then(|content| serde_json::from_str::<AppSettings>(&content).ok())
+        .unwrap_or_default();
+    settings.auto_return_minutes =
+        auto_return::normalize_auto_return_minutes(settings.auto_return_minutes);
+    settings
 }
 
 pub fn save_settings(settings: &AppSettings) -> Result<(), String> {

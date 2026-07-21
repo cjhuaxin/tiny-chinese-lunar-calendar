@@ -20,6 +20,9 @@ export component MainWindow inherits Window {
     in property <string> meta-text;
     in property <string> workday-line;
     in property <bool> pinned: false;
+    in property <bool> today-highlight: false;
+    in property <bool> hero-emphasis: false;
+    in-out property <float> grid-opacity: 1.0;
 
     // ─── weather ───
     in property <bool> weather-visible: false;
@@ -90,6 +93,8 @@ export component MainWindow inherits Window {
                         horizontal-stretch: 0;
                         Rectangle {
                             height: 37px;
+                            transform-scale: root.hero-emphasis ? 1.03 : 1.0;
+                            animate transform-scale { duration: 150ms; easing: ease-out; }
                             Text {
                                 text: root.hero-day;
                                 font-size: 38px;
@@ -226,6 +231,7 @@ export component MainWindow inherits Window {
                                     }
                                 }
                                 TodayButton {
+                                    highlight: root.today-highlight;
                                     clicked => { root.go-today(); }
                                 }
                             }
@@ -245,6 +251,8 @@ export component MainWindow inherits Window {
             // ─── Calendar body ───
             body := Rectangle {
                 vertical-stretch: 1;
+                opacity: root.grid-opacity;
+                animate opacity { duration: 200ms; easing: ease-in-out; }
                 // approximates color-mix(paper-surface-end 42%, paper-grid) fading into paper-grid at 28px
                 background: @linear-gradient(180deg, #f2ece1 0%, #f6f1e8 8%, #f6f1e8 100%);
 
