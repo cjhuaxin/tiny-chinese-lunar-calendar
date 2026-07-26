@@ -14,6 +14,26 @@ const CINNABAR: Rgba<u8> = Rgba([0xc4, 0x5c, 0x3e, 0xff]);
 const WEEKEND: Rgba<u8> = Rgba([0xd4, 0x68, 0x4a, 0xff]);
 const SHADOW: Rgba<u8> = Rgba([0x3d, 0x2e, 0x1f, 0x2e]);
 
+/// Menu-bar badge color for an active weather alert.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AlertLevel {
+    Minor,
+    Moderate,
+    Severe,
+    Extreme,
+}
+
+impl AlertLevel {
+    fn color(self) -> Rgba<u8> {
+        match self {
+            Self::Minor => Rgba([0x4a, 0x6a, 0x8a, 0xff]),
+            Self::Moderate => Rgba([0x8a, 0x6a, 0x1f, 0xff]),
+            Self::Severe => Rgba([0xb0, 0x6a, 0x24, 0xff]),
+            Self::Extreme => Rgba([0xa5, 0x34, 0x2a, 0xff]),
+        }
+    }
+}
+
 const CARD_INSET_X: f32 = 0.0;
 const CARD_INSET_TOP: f32 = 0.0;
 const CARD_INSET_BOTTOM: f32 = 2.0;
@@ -224,7 +244,43 @@ fn draw_text_centered(
     }
 }
 
-pub fn render_tray_icon(weekday: char, day: u32, is_weekend: bool) -> (Vec<u8>, u32, u32) {
+fn fill_circle(img: &mut RgbaImage, cx: f32, cy: f32, r: f32, color: Rgba<u8>) {
+    let min_x = (cx - r).floor() as i32;
+    let max_x = (cx + r).ceil() as i32;
+    let min_y = (cy - r).floor() as i32;
+    let max_y = (cy + r).ceil() as i32;
+    let r2 = r * r;
+    for py in min_y..=max_y {
+        for px in min_x..=max_x {
+            if px < 0 || py < 0 || px >= ICON_WIDTH as i32 || py >= ICON_HEIGHT as i32 {
+                continue;
+            }
+            let dx = px as f32 + 0.5 - cx;
+            let dy = py as f32 + 0.5 - cy;
+            if dx * dx + dy * dy <= r2 {
+                let pixel = img.get_pixel_mut(px as u32, py as u32);
+                blend_pixel(pixel, color, color[3] as f32 / 255.0);
+            }
+        }
+    }
+}
+
+fn draw_alert_dot(img: &mut RgbaImage, alert: AlertLevel) {
+    // Top-right of the card, with a paper ring so the badge stays readable
+    // against both light and dark menu bars.
+    let (x, y, w, _h) = card_rect();
+    let cx = x + w - 6.0;
+    let cy = y + 6.0;
+    fill_circle(img, cx, cy, 5.0, PAPER_BG);
+    fill_circle(img, cx, cy, 3.5, alert.color());
+}
+
+pub fn render_tray_icon(
+    weekday: char,
+    day: u32,
+    is_weekend: bool,
+    alert: Option<AlertLevel>,
+) -> (Vec<u8>, u32, u32) {
     let mut img = RgbaImage::from_pixel(ICON_WIDTH, ICON_HEIGHT, Rgba([0, 0, 0, 0]));
     let (x, y, w, h) = card_rect();
 
@@ -261,6 +317,10 @@ pub fn render_tray_icon(weekday: char, day: u32, is_weekend: bool) -> (Vec<u8>, 
         None,
     );
 
+    if let Some(alert) = alert {
+        draw_alert_dot(&mut img, alert);
+    }
+
     (img.into_raw(), ICON_WIDTH, ICON_HEIGHT)
 }
 
@@ -270,10 +330,16 @@ mod tests {
 
     #[test]
     fn render_produces_expected_buffer_size() {
-        let (rgba, width, height) = render_tray_icon('日', 21, true);
+        let (rgba, width, height) = render_tray_icon('日', 21, true, None);
         assert_eq!(width, ICON_WIDTH);
         assert_eq!(height, ICON_HEIGHT);
         assert_eq!(rgba.len(), (ICON_WIDTH * ICON_HEIGHT * 4) as usize);
         assert!(rgba.iter().any(|v| *v > 0));
+    }
+
+    #[test]
+    fn render_with_alert_dot() {
+        let (rgba, _, _) = render_tray_icon('一', 26, false, Some(AlertLevel::Severe));
+        assert_eq!(rgba.len(), (ICON_WIDTH * ICON_HEIGHT * 4) as usize);
     }
 }

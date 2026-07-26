@@ -14,9 +14,11 @@ use crate::auto_return::{
 };
 use crate::models::{AppSettings, CalendarLabelPriority, DayDetail};
 use crate::services::calendar::{build_day_detail, build_month_grid};
-use crate::services::{holiday, location, weather};
+use crate::services::insights::{self, InsightLevel};
+use crate::services::{holiday, location, notifications, weather};
 use crate::settings::{load_settings, save_settings, sync_launch_at_login};
 use crate::textfit;
+use crate::tray::render::AlertLevel;
 use crate::{DayCellData, MainWindow, SettingsWindow, WeekdayLabel};
 
 use slint::winit_030::{winit, WinitWindowAccessor};
@@ -31,6 +33,7 @@ const HERO_WEEKDAYS: [&str; 7] = ["周日", "周一", "周二", "周三", "周�
 
 const CYCLE_INTERVAL: Duration = Duration::from_secs(5);
 const DETAIL_REFRESH_INTERVAL: Duration = Duration::from_secs(30);
+const INSIGHT_POLL_INTERVAL: Duration = Duration::from_secs(10 * 60);
 
 pub struct App {
     /// The calendar window is created on demand and dropped when hidden so
@@ -42,6 +45,7 @@ pub struct App {
     _cycle_timer: slint::Timer,
     _refresh_timer: slint::Timer,
     _auto_return_timer: slint::Timer,
+    _insight_timer: slint::Timer,
 }
 
 pub struct State {
@@ -225,6 +229,21 @@ impl App {
             );
         }
 
+        let insight_timer = slint::Timer::default();
+        {
+            let state = state.clone();
+            insight_timer.start(
+                slint::TimerMode::Repeated,
+                INSIGHT_POLL_INTERVAL,
+                move || {
+                    let state = state.clone();
+                    with_app(move |app| {
+                        app.poll_insights_background(&state);
+                    });
+                },
+            );
+        }
+
         let app = Rc::new(Self {
             main: RefCell::new(None),
             settings_win,
@@ -232,9 +251,25 @@ impl App {
             _cycle_timer: cycle_timer,
             _refresh_timer: refresh_timer,
             _auto_return_timer: auto_return_timer,
+            _insight_timer: insight_timer,
         });
 
         app.wire_settings_callbacks();
+
+        // Notification taps open the calendar and expand the warning detail.
+        notifications::install_click_handler(|| {
+            with_app(|app| {
+                app.open_from_warning_notification();
+            });
+        });
+
+        // Kick an immediate background poll once the event loop is running.
+        {
+            let state = app.state.clone();
+            slint::Timer::single_shot(Duration::from_secs(3), move || {
+                with_app(move |app| app.poll_insights_background(&state));
+            });
+        }
 
         Ok(app)
     }
@@ -353,6 +388,15 @@ impl App {
                 }
             });
         }
+
+        {
+            let main_weak = main.as_weak();
+            main.on_open_warning_detail(move || {
+                if let Some(main) = main_weak.upgrade() {
+                    main.set_warning_detail_open(true);
+                }
+            });
+        }
     }
 
     fn wire_settings_callbacks(self: &Rc<Self>) {
@@ -365,6 +409,7 @@ impl App {
                 let Some(win) = win_weak.upgrade() else {
                     return;
                 };
+                let show_weather = win.get_draft_show_weather();
                 let new_settings = AppSettings {
                     sunday_first: win.get_draft_sunday_first(),
                     show_international_festivals: win.get_draft_show_intl(),
@@ -374,7 +419,11 @@ impl App {
                     } else {
                         CalendarLabelPriority::SolarTerm
                     },
-                    show_weather: win.get_draft_show_weather(),
+                    show_weather,
+                    show_weather_warning: show_weather && win.get_draft_show_weather_warning(),
+                    warning_notifications: show_weather
+                        && win.get_draft_show_weather_warning()
+                        && win.get_draft_warning_notifications(),
                     auto_return_minutes: auto_return::normalize_auto_return_minutes(
                         win.get_draft_auto_return_minutes() as u8,
                     ),
@@ -528,6 +577,10 @@ impl App {
         self.settings_win
             .set_draft_launch_login(settings.launch_at_login);
         self.settings_win.set_draft_show_weather(settings.show_weather);
+        self.settings_win
+            .set_draft_show_weather_warning(settings.show_weather_warning);
+        self.settings_win
+            .set_draft_warning_notifications(settings.warning_notifications);
         self.settings_win.set_draft_priority_intl(matches!(
             settings.calendar_label_priority,
             CalendarLabelPriority::InternationalFestival
@@ -550,37 +603,40 @@ impl App {
     /// Disabled entirely (no location request, no API calls) when the user
     /// turned the weather display off in settings.
     fn ensure_weather_for_main(self: &Rc<Self>, main: &MainWindow) {
-        if !self.state.settings.borrow().show_weather {
+        let settings = self.state.settings.borrow().clone();
+        if !settings.show_weather {
             main.set_weather_visible(false);
+            insights::clear_insights();
+            apply_insights_ui(main, false);
+            crate::tray::icon::set_alert_level(None);
             return;
         }
 
         weather::set_loading();
         weather::apply_weather_to_window(main);
+        // Keep any previously cached strip while the refresh is in flight.
+        apply_insights_ui(main, settings.show_weather_warning);
 
         let main_weak = main.as_weak();
+        let show_warning = settings.show_weather_warning;
+        let notify = settings.warning_notifications;
         location::request_coordinates(move |result| {
             match result {
                 Ok((lat, lon)) => {
-                    let main_weak = main_weak.clone();
-                    weather::ensure_weather(lat, lon, move || {
-                        let main_weak = main_weak.clone();
-                        let _ = slint::invoke_from_event_loop(move || {
-                            apply_weather_ui(&main_weak);
-                        });
-                    });
+                    fetch_weather_and_insights(lat, lon, main_weak, show_warning, notify);
                 }
                 Err(err) => {
                     eprintln!("location failed: {err}");
                     let main_weak = main_weak.clone();
                     std::thread::spawn(move || {
                         if let Some((lat, lon)) = weather::resolve_coordinates_fallback() {
-                            weather::ensure_weather(lat, lon, move || {
-                                let main_weak = main_weak.clone();
-                                let _ = slint::invoke_from_event_loop(move || {
-                                    apply_weather_ui(&main_weak);
-                                });
-                            });
+                            fetch_weather_and_insights(
+                                lat,
+                                lon,
+                                main_weak,
+                                show_warning,
+                                notify,
+                            );
                         } else {
                             weather::set_unavailable(&err);
                             let _ = slint::invoke_from_event_loop(move || {
@@ -591,6 +647,57 @@ impl App {
                 }
             }
         });
+    }
+
+    /// Background poll for weather alerts (no CoreLocation prompt): uses the
+    /// disk/IP coordinate cache and updates the tray badge + notifications.
+    fn poll_insights_background(self: &Rc<Self>, state: &Rc<State>) {
+        let settings = state.settings.borrow().clone();
+        if !settings.show_weather || !settings.show_weather_warning {
+            crate::tray::icon::set_alert_level(None);
+            return;
+        }
+
+        let notify = settings.warning_notifications;
+        std::thread::spawn(move || {
+            let Some((lat, lon)) = weather::cached_coordinates()
+                .or_else(weather::resolve_coordinates_fallback)
+            else {
+                return;
+            };
+            insights::ensure_warnings(lat, lon, move || {
+                let _ = slint::invoke_from_event_loop(move || {
+                    apply_insights_after_fetch(notify);
+                });
+            });
+        });
+    }
+
+    /// Opens (or focuses) the calendar popover and expands the warning detail
+    /// sheet — used when the user clicks a system notification.
+    pub fn open_from_warning_notification(self: &Rc<Self>) {
+        let visible = self
+            .main_handle()
+            .is_some_and(|m| m.window().is_visible());
+        if !visible {
+            // Prefer a pinned open so the focus-loss auto-hide doesn't race
+            // the detail overlay.
+            self.state.pinned.set(true);
+            if let Ok(main) = self.ensure_main() {
+                main.set_pinned(true);
+                let _ = main.show();
+                self.ensure_weather_for_main(&main);
+                main.set_warning_detail_open(true);
+                #[cfg(target_os = "macos")]
+                crate::tray::macos::raise_slint_window(main.window());
+            }
+            return;
+        }
+        if let Some(main) = self.main_handle() {
+            main.set_warning_detail_open(true);
+            #[cfg(target_os = "macos")]
+            crate::tray::macos::raise_slint_window(main.window());
+        }
     }
 
     /// Installs the winit focus-lost hook that auto-destroys the main window
@@ -757,6 +864,76 @@ fn apply_weather_ui(main_weak: &slint::Weak<MainWindow>) {
     };
     weather::apply_weather_to_window(&main);
     with_app(|app| refresh_grid(&main, &app.state));
+}
+
+fn insight_level_to_tray(level: InsightLevel) -> Option<AlertLevel> {
+    match level {
+        InsightLevel::Info => None,
+        InsightLevel::Minor => Some(AlertLevel::Minor),
+        InsightLevel::Moderate => Some(AlertLevel::Moderate),
+        InsightLevel::Severe => Some(AlertLevel::Severe),
+        InsightLevel::Extreme => Some(AlertLevel::Extreme),
+    }
+}
+
+fn apply_insights_ui(main: &MainWindow, show_warnings: bool) {
+    insights::apply_to_window(main, show_warnings);
+    let tray_level = if show_warnings {
+        insights::highest_alert_level().and_then(insight_level_to_tray)
+    } else {
+        None
+    };
+    crate::tray::icon::set_alert_level(tray_level);
+}
+
+fn apply_insights_after_fetch(notify: bool) {
+    let warnings = insights::warning_insights();
+    notifications::maybe_notify_warnings(&warnings, notify);
+
+    with_app(|app| {
+        let show = app.state.settings.borrow().show_weather_warning
+            && app.state.settings.borrow().show_weather;
+        if let Some(main) = app.main_handle() {
+            apply_insights_ui(&main, show);
+        } else {
+            let tray_level = if show {
+                insights::highest_alert_level().and_then(insight_level_to_tray)
+            } else {
+                None
+            };
+            crate::tray::icon::set_alert_level(tray_level);
+        }
+    });
+}
+
+fn fetch_weather_and_insights(
+    lat: f64,
+    lon: f64,
+    main_weak: slint::Weak<MainWindow>,
+    show_warning: bool,
+    notify: bool,
+) {
+    let main_weak_weather = main_weak.clone();
+    weather::ensure_weather(lat, lon, move || {
+        let main_weak_weather = main_weak_weather.clone();
+        let _ = slint::invoke_from_event_loop(move || {
+            apply_weather_ui(&main_weak_weather);
+        });
+    });
+
+    if show_warning {
+        insights::ensure_warnings(lat, lon, move || {
+            let _ = slint::invoke_from_event_loop(move || {
+                apply_insights_after_fetch(notify);
+            });
+        });
+    } else {
+        let _ = main_weak;
+        insights::clear_insights();
+        let _ = slint::invoke_from_event_loop(move || {
+            apply_insights_after_fetch(false);
+        });
+    }
 }
 
 fn apply_year_month(main: &MainWindow, state: &Rc<State>, year: i32, month: u32) {

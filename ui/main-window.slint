@@ -1,5 +1,8 @@
 import { Theme } from "theme.slint";
-import { DayCellData, WeekdayLabel, DayCellView, PinButton, TodayButton, WeatherBadge, FestivalMoreBadge } from "components.slint";
+import {
+    DayCellData, WeekdayLabel, DayCellView, PinButton, TodayButton,
+    WeatherBadge, FestivalMoreBadge, InsightStrip, AlertLevelPill, WarningDetailItem,
+} from "components.slint";
 import { ScrollView } from "std-widgets.slint";
 
 export component MainWindow inherits Window {
@@ -35,6 +38,16 @@ export component MainWindow inherits Window {
     in property <float> weather-tscale: 1.0;
     in property <length> weather-content-w: 72px;
 
+    // ─── insight strip (weather alerts) ───
+    in property <bool> insight-visible: false;
+    in property <string> insight-level: "info";
+    in property <string> insight-title: "";
+    in property <string> insight-subtitle: "";
+    in property <int> insight-more: 0;
+    in-out property <bool> warning-detail-open: false;
+    in property <[WarningDetailItem]> warning-details;
+    in property <string> warning-source: "";
+
     // ─── month grid ───
     in property <string> year-text;
     in property <string> month-name;
@@ -56,6 +69,7 @@ export component MainWindow inherits Window {
     callback toggle-pin();
     callback confirm-year-month(int, int);
     callback start-drag();
+    callback open-warning-detail();
 
     shell := Rectangle {
         border-radius: Theme.radius-shell;
@@ -239,13 +253,22 @@ export component MainWindow inherits Window {
                     }
                 }
 
-                // bottom divider
-                Rectangle {
+                // bottom divider (hidden when the insight strip takes over)
+                if !root.insight-visible : Rectangle {
                     y: parent.height - 1px;
                     height: 1px;
                     width: 100%;
                     background: Theme.paper-divider;
                 }
+            }
+
+            InsightStrip {
+                show: root.insight-visible;
+                level: root.insight-level;
+                title: root.insight-title;
+                subtitle: root.insight-subtitle;
+                more: root.insight-more;
+                clicked => { root.open-warning-detail(); }
             }
 
             // ─── Calendar body ───
@@ -372,6 +395,150 @@ export component MainWindow inherits Window {
                             height: grid.height / root.grid-rows;
                             cell: cell;
                             pressed => { root.select-day(cell.date); }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ─── Weather-warning detail overlay ───
+        if root.warning-detail-open : Rectangle {
+            width: 100%;
+            height: 100%;
+            background: #3d2e1f59; // rgba(61,46,31,0.35)
+
+            TouchArea {
+                clicked => { root.warning-detail-open = false; }
+            }
+
+            warning-dialog := Rectangle {
+                width: 400px;
+                height: 310px;
+                background: Theme.paper-bg;
+                border-radius: 12px;
+                border-width: 1px;
+                border-color: Theme.paper-border;
+                clip: true;
+
+                TouchArea { } // swallow clicks inside the dialog
+
+                VerticalLayout {
+                    // header
+                    Rectangle {
+                        height: 44px;
+                        background: Theme.paper-surface;
+                        HorizontalLayout {
+                            padding-left: 16px;
+                            padding-right: 12px;
+                            spacing: 8px;
+                            alignment: stretch;
+                            Text {
+                                text: "天气预警";
+                                font-size: 15px;
+                                font-weight: 700;
+                                color: Theme.ink;
+                                vertical-alignment: center;
+                                horizontal-stretch: 1;
+                            }
+                            VerticalLayout {
+                                alignment: center;
+                                horizontal-stretch: 0;
+                                close-warn := Rectangle {
+                                    width: 24px;
+                                    height: 24px;
+                                    border-radius: 6px;
+                                    background: close-warn-ta.has-hover ? Theme.cinnabar-soft : transparent;
+                                    close-warn-ta := TouchArea {
+                                        clicked => { root.warning-detail-open = false; }
+                                        mouse-cursor: pointer;
+                                    }
+                                    Path {
+                                        width: 9px;
+                                        height: 9px;
+                                        viewbox-width: 10;
+                                        viewbox-height: 10;
+                                        commands: "M 1 1 L 9 9 M 9 1 L 1 9";
+                                        stroke: close-warn-ta.has-hover ? Theme.cinnabar : Theme.ink-muted;
+                                        stroke-width: 1.4px;
+                                    }
+                                }
+                            }
+                        }
+                        Rectangle {
+                            y: parent.height - 1px;
+                            height: 1px;
+                            width: 100%;
+                            background: Theme.paper-divider;
+                        }
+                    }
+
+                    warning-scroll := ScrollView {
+                        vertical-stretch: 1;
+                        viewport-width: self.width;
+                        // Approximate content height: each alert ~ header 28 + body wrap.
+                        // ScrollView still works if viewport is taller than needed.
+                        VerticalLayout {
+                            padding-left: 16px;
+                            padding-right: 16px;
+                            padding-top: 14px;
+                            padding-bottom: 10px;
+                            spacing: 14px;
+                            width: 100%;
+
+                            for item[i] in root.warning-details : VerticalLayout {
+                                spacing: 8px;
+                                width: 100%;
+
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    alignment: start;
+                                    AlertLevelPill {
+                                        level: item.level;
+                                        text: item.type-name;
+                                        level-label: item.level-label;
+                                    }
+                                    if item.issued != "" : Text {
+                                        text: item.issued;
+                                        font-size: 11px;
+                                        color: Theme.ink-secondary;
+                                        vertical-alignment: center;
+                                    }
+                                }
+
+                                Text {
+                                    text: item.body;
+                                    font-size: 12.5px;
+                                    color: Theme.ink;
+                                    wrap: word-wrap;
+                                    width: 100%;
+                                }
+
+                                if i + 1 < root.warning-details.length : Rectangle {
+                                    height: 1px;
+                                    background: Theme.paper-divider;
+                                }
+                            }
+                        }
+                    }
+
+                    // footer attribution
+                    Rectangle {
+                        height: 32px;
+                        Rectangle {
+                            y: 0;
+                            height: 1px;
+                            width: 100%;
+                            background: Theme.paper-divider;
+                        }
+                        Text {
+                            x: 16px;
+                            width: parent.width - 32px;
+                            height: 100%;
+                            text: root.warning-source;
+                            font-size: 10px;
+                            color: Theme.ink-muted;
+                            vertical-alignment: center;
+                            overflow: elide;
                         }
                     }
                 }

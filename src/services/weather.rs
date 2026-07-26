@@ -21,12 +21,12 @@ const CITY_TTL_SECS: u64 = 30 * 24 * 60 * 60;
 const PROXY_HOST: &str = "127.0.0.1";
 const PROXY_PORT: u16 = 7890;
 
-const QWEATHER_API_HOST: &str = match option_env!("QWEATHER_API_HOST") {
+pub(crate) const QWEATHER_API_HOST: &str = match option_env!("QWEATHER_API_HOST") {
     Some(value) => value,
     None => "",
 };
 
-fn qweather_configured() -> bool {
+pub(crate) fn qweather_configured() -> bool {
     !QWEATHER_API_HOST.is_empty() && qweather_jwt::jwt_configured()
 }
 
@@ -371,7 +371,7 @@ pub fn resolve_coordinates_fallback() -> Option<(f64, f64)> {
     Some(coords)
 }
 
-fn curl_get(url: &str) -> Result<Vec<u8>, String> {
+pub(crate) fn curl_get(url: &str) -> Result<Vec<u8>, String> {
     let token = qweather_jwt::bearer_token()?;
     match curl_get_once(url, &token, None) {
         Ok(body) => Ok(body),

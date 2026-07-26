@@ -1,6 +1,8 @@
 // Subset of LXGW WenKai (OFL licensed, see fonts/OFL.txt); covers ASCII plus
-// every CJK char reachable from this repo and the tyme4rs lunar data, plus
-// all chars in Chinese province/city/district names (for the weather city).
+// GB2312 level-1 and the GB2312 symbol rows. Weather-alert bodies arrive from
+// the network and can contain any common hanzi, and a character outside the
+// subset falls back to a system font mid-string — visibly mixed typefaces.
+// Regenerate with scripts/subset-fonts.py after adding characters.
 import "fonts/LXGWWenKai-Regular.ttf";
 import "fonts/LXGWWenKai-Medium.ttf";
 
@@ -27,6 +29,23 @@ export global Theme {
 
     out property <color> outside-gray: #c8bdb0;
     out property <color> weekend: #c45c3e;
+
+    // Weather-alert severity palette. Two tints per level: `-bg` is the
+    // soft wash behind the full-width strip, `-pill` is a stronger tint so
+    // the small level pills stay distinguishable from each other (blue /
+    // gold / orange / red read as four separate hues, not four beiges).
+    out property <color> alert-minor-fg: #35618f;
+    out property <color> alert-minor-bg: #eaf0f6;
+    out property <color> alert-minor-pill: #dbe6f2;
+    out property <color> alert-moderate-fg: #8a6410;
+    out property <color> alert-moderate-bg: #f9f0d5;
+    out property <color> alert-moderate-pill: #f6e6ae;
+    out property <color> alert-severe-fg: #c2540d;
+    out property <color> alert-severe-bg: #fbeadb;
+    out property <color> alert-severe-pill: #fad7b4;
+    out property <color> alert-extreme-fg: #b02417;
+    out property <color> alert-extreme-bg: #fae2dd;
+    out property <color> alert-extreme-pill: #f8cdc4;
 
     // rgba(196,92,62,0.06) / 0.08 hover tints
     out property <color> cinnabar-hover-faint: #c45c3e0f;

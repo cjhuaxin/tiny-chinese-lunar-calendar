@@ -160,6 +160,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
+    // Debug aid: expand the weather-alert sheet once the fetch settles, so the
+    // long alert bodies (the app's heaviest text) can be eyeballed and profiled.
+    if std::env::var("TCLC_WARN").is_ok() {
+        slint::Timer::single_shot(Duration::from_secs(4), || {
+            with_app(|app| app.open_from_warning_notification());
+        });
+    }
+
     // Debug aid: simulate a tray click (unpinned toggle) 5s after startup,
     // using the real tray anchor like handle_tray_event does.
     if std::env::var("TCLC_TOGGLE").is_ok() {

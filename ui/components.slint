@@ -20,6 +20,15 @@ export struct WeekdayLabel {
     weekend: bool,
 }
 
+export struct WarningDetailItem {
+    level: string, // "info" | "minor" | "moderate" | "severe" | "extreme"
+    type-name: string,
+    level-label: string, // "橙色" / "黄色" / "" — spelled out so the severity
+                         // never depends on colour perception alone
+    issued: string,
+    body: string,
+}
+
 export component WeatherIcon inherits Rectangle {
     in property <string> kind; // sunny | cloudy | overcast | rain | snow | fog | wind | unknown
     in property <color> stroke-color: Theme.ink-secondary;
@@ -364,6 +373,179 @@ export component WeatherBadge inherits Rectangle {
                 color: Theme.ink-secondary;
                 overflow: elide;
             }
+        }
+    }
+}
+
+// Compact alert strip between hero and calendar. Collapses to 0 height when
+// invisible so the monthly grid keeps its full cell height on quiet days.
+export component InsightStrip inherits Rectangle {
+    in property <bool> show: false;
+    in property <string> level: "info"; // info | minor | moderate | severe | extreme
+    in property <string> title: "";
+    in property <string> subtitle: "";
+    in property <int> more: 0;
+    callback clicked;
+
+    height: root.show ? 26px : 0px;
+    visible: root.show;
+    clip: true;
+
+    property <color> fg:
+        level == "extreme" ? Theme.alert-extreme-fg
+        : level == "severe" ? Theme.alert-severe-fg
+        : level == "moderate" ? Theme.alert-moderate-fg
+        : Theme.alert-minor-fg;
+    property <color> bg:
+        level == "extreme" ? Theme.alert-extreme-bg
+        : level == "severe" ? Theme.alert-severe-bg
+        : level == "moderate" ? Theme.alert-moderate-bg
+        : Theme.alert-minor-bg;
+
+    background: ta.has-hover ? root.fg.with-alpha(0.14) : root.bg;
+    animate background { duration: 120ms; easing: ease; }
+
+    ta := TouchArea {
+        clicked => { root.clicked(); }
+        mouse-cursor: pointer;
+    }
+
+    if root.show : HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 10px;
+        spacing: 6px;
+        alignment: stretch;
+
+        // Triangle warning glyph
+        VerticalLayout {
+            alignment: center;
+            horizontal-stretch: 0;
+            Path {
+                width: 12px;
+                height: 12px;
+                viewbox-width: 24;
+                viewbox-height: 24;
+                commands: "M 12 3.5 L 22 20.5 L 2 20.5 Z M 12 9.5 L 12 14.5 M 12 17 L 12 18.2";
+                stroke: root.fg;
+                stroke-width: 1.6px;
+                fill: transparent;
+            }
+        }
+
+        Text {
+            text: root.title;
+            font-size: 12px;
+            font-weight: 600;
+            color: root.fg;
+            vertical-alignment: center;
+            overflow: elide;
+            horizontal-stretch: 0;
+        }
+
+        if root.subtitle != "" : Text {
+            text: root.subtitle;
+            font-size: 11px;
+            color: root.fg;
+            opacity: 0.72;
+            vertical-alignment: center;
+            overflow: elide;
+            horizontal-stretch: 1;
+        }
+
+        if root.subtitle == "" : Rectangle {
+            horizontal-stretch: 1;
+        }
+
+        // Wrapped in a centering layout: a bare fixed-height child of a
+        // HorizontalLayout is pinned to the top of the row.
+        if root.more > 0 : VerticalLayout {
+            alignment: center;
+            horizontal-stretch: 0;
+            Rectangle {
+                height: 17px;
+                min-width: 24px;
+                border-radius: 4px;
+                background: root.fg.with-alpha(0.13);
+                HorizontalLayout {
+                    padding-left: 5px;
+                    padding-right: 5px;
+                    Text {
+                        text: "+" + root.more;
+                        font-size: 11px;
+                        font-weight: 600;
+                        color: root.fg;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+
+        VerticalLayout {
+            alignment: center;
+            horizontal-stretch: 0;
+            Text {
+                text: "›";
+                font-size: 14px;
+                color: root.fg;
+                opacity: 0.7;
+                vertical-alignment: center;
+            }
+        }
+    }
+
+    // Hairline under the strip so it separates from the calendar body.
+    if root.show : Rectangle {
+        y: parent.height - 1px;
+        height: 1px;
+        width: 100%;
+        background: root.fg.with-alpha(0.18);
+    }
+}
+
+export component AlertLevelPill inherits Rectangle {
+    in property <string> level: "info";
+    in property <string> text: "";
+    // "橙色" / "黄色" / "" — rendered next to the type so the severity is
+    // legible without relying on the pill colour.
+    in property <string> level-label: "";
+
+    property <color> fg:
+        level == "extreme" ? Theme.alert-extreme-fg
+        : level == "severe" ? Theme.alert-severe-fg
+        : level == "moderate" ? Theme.alert-moderate-fg
+        : Theme.alert-minor-fg;
+    property <color> bg:
+        level == "extreme" ? Theme.alert-extreme-pill
+        : level == "severe" ? Theme.alert-severe-pill
+        : level == "moderate" ? Theme.alert-moderate-pill
+        : Theme.alert-minor-pill;
+
+    height: 21px;
+    border-radius: 4px;
+    background: root.bg;
+    border-width: 1px;
+    border-color: root.fg.with-alpha(0.3);
+    horizontal-stretch: 0;
+
+    HorizontalLayout {
+        padding-left: 7px;
+        padding-right: 7px;
+        spacing: 4px;
+        Text {
+            text: root.text;
+            font-size: 11px;
+            font-weight: 700;
+            color: root.fg;
+            vertical-alignment: center;
+        }
+        if root.level-label != "" : Text {
+            text: root.level-label;
+            font-size: 11px;
+            font-weight: 600;
+            color: root.fg;
+            opacity: 0.8;
+            vertical-alignment: center;
         }
     }
 }

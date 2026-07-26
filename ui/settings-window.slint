@@ -120,6 +120,8 @@ export component SettingsWindow inherits Window {
     in-out property <bool> draft-show-intl;
     in-out property <bool> draft-launch-login;
     in-out property <bool> draft-show-weather;
+    in-out property <bool> draft-show-weather-warning: true;
+    in-out property <bool> draft-warning-notifications: true;
     // false => 节气优先, true => 国际节日优先
     in-out property <bool> draft-priority-intl;
     // 5 | 15 | 30 minutes before auto-returning to today
@@ -229,6 +231,43 @@ export component SettingsWindow inherits Window {
                         text: "关闭后不再请求定位和天气服务";
                         font-size: 12px;
                         color: Theme.ink-muted;
+                    }
+                    if root.draft-show-weather : Rectangle {
+                        border-radius: 10px;
+                        background: #3d2e1f0a; // rgba(61,46,31,0.04)
+                        VerticalLayout {
+                            padding-left: 14px;
+                            padding-right: 14px;
+                            padding-top: 12px;
+                            padding-bottom: 12px;
+                            spacing: 10px;
+                            OptionRow {
+                                text: "显示天气预警";
+                                checked: root.draft-show-weather-warning;
+                                toggled => {
+                                    root.draft-show-weather-warning = !root.draft-show-weather-warning;
+                                }
+                            }
+                            Text {
+                                text: "有灾害预警时在日历顶部显示提示条，菜单栏图标出现角标";
+                                font-size: 12px;
+                                color: Theme.ink-muted;
+                                wrap: word-wrap;
+                            }
+                            if root.draft-show-weather-warning : OptionRow {
+                                text: "橙色及以上预警发送系统通知";
+                                checked: root.draft-warning-notifications;
+                                toggled => {
+                                    root.draft-warning-notifications = !root.draft-warning-notifications;
+                                }
+                            }
+                            if root.draft-show-weather-warning : Text {
+                                text: "同一条预警只通知一次；夜间 22:00–07:00 延迟到早上（红色除外）";
+                                font-size: 12px;
+                                color: Theme.ink-muted;
+                                wrap: word-wrap;
+                            }
+                        }
                     }
                     Rectangle { height: 8px; }
                     Text {

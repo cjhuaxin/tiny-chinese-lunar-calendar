@@ -6,12 +6,13 @@ use chrono::{Datelike, Local, NaiveDate, Weekday};
 use once_cell::sync::Lazy;
 use tray_icon::TrayIcon;
 
-use crate::tray::render;
+use crate::tray::render::{self, AlertLevel};
 
 #[cfg(target_os = "macos")]
 use crate::tray::macos;
 
 static LAST_KNOWN_DATE: Lazy<Mutex<Option<NaiveDate>>> = Lazy::new(|| Mutex::new(None));
+static ALERT_LEVEL: Lazy<Mutex<Option<AlertLevel>>> = Lazy::new(|| Mutex::new(None));
 
 const DATE_POLL_INTERVAL: Duration = Duration::from_secs(30);
 
@@ -74,6 +75,21 @@ pub fn set_date_changed_handler(handler: impl Fn() + 'static) {
     });
 }
 
+/// Updates the weather-alert badge drawn on the tray icon. Main thread only.
+pub fn set_alert_level(level: Option<AlertLevel>) {
+    if let Ok(mut guard) = ALERT_LEVEL.lock() {
+        if *guard == level {
+            return;
+        }
+        *guard = level;
+    }
+    update_tray_icon();
+}
+
+fn current_alert_level() -> Option<AlertLevel> {
+    ALERT_LEVEL.lock().ok().and_then(|g| *g)
+}
+
 /// Redraws the tray icon for today's date. Main thread only.
 pub fn update_tray_icon() {
     TRAY_ICON.with(|cell| {
@@ -83,8 +99,12 @@ pub fn update_tray_icon() {
         };
 
         let now = Local::now();
-        let (rgba, width, height) =
-            render::render_tray_icon(weekday_char(), now.day(), is_weekend());
+        let (rgba, width, height) = render::render_tray_icon(
+            weekday_char(),
+            now.day(),
+            is_weekend(),
+            current_alert_level(),
+        );
 
         if let Ok(icon) = tray_icon::Icon::from_rgba(rgba, width, height) {
             let _ = tray.set_icon_with_as_template(Some(icon), false);

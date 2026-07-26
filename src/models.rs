@@ -20,6 +20,10 @@ pub struct AppSettings {
     pub calendar_label_priority: CalendarLabelPriority,
     #[serde(default = "default_show_weather")]
     pub show_weather: bool,
+    #[serde(default = "default_show_weather_warning")]
+    pub show_weather_warning: bool,
+    #[serde(default = "default_warning_notifications")]
+    pub warning_notifications: bool,
     /// Minutes of inactivity before auto-returning to today (5, 15, or 30).
     #[serde(default = "default_auto_return_minutes")]
     pub auto_return_minutes: u8,
@@ -30,6 +34,14 @@ fn default_show_international_festivals() -> bool {
 }
 
 fn default_show_weather() -> bool {
+    true
+}
+
+fn default_show_weather_warning() -> bool {
+    true
+}
+
+fn default_warning_notifications() -> bool {
     true
 }
 
@@ -45,6 +57,8 @@ impl Default for AppSettings {
             launch_at_login: false,
             calendar_label_priority: CalendarLabelPriority::SolarTerm,
             show_weather: true,
+            show_weather_warning: true,
+            warning_notifications: true,
             auto_return_minutes: default_auto_return_minutes(),
         }
     }
