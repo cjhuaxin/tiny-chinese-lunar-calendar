@@ -105,6 +105,19 @@ appcast_runtime_feed_url() {
     fi
 }
 
+# Secondary feed baked into the app as SUFeedURLFallback. Cloudflare challenges
+# datacenter IPs, so users behind a VPN/proxy get an HTML challenge page from
+# the R2 mirror instead of the appcast; GitHub serves the same file unchallenged.
+# Empty when the primary feed already points at GitHub.
+appcast_fallback_feed_url() {
+    local repo="${1:-cjhuaxin/tiny-chinese-lunar-calendar}"
+    if r2_configured; then
+        echo "https://github.com/${repo}/releases/latest/download/appcast.xml"
+    else
+        echo ""
+    fi
+}
+
 # Purge the jsDelivr cache so Sparkle sees the latest appcast immediately after publish.
 purge_appcast_cache() {
     local feed_url purge_path

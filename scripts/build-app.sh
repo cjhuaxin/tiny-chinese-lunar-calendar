@@ -11,6 +11,7 @@ BIN_NAME="tiny-chinese-lunar-calendar"
 BUNDLE_ID="com.cjhuaxin.tclc"
 GITHUB_REPO="https://github.com/cjhuaxin/tiny-chinese-lunar-calendar"
 APPCAST_URL="$(appcast_runtime_feed_url)"
+APPCAST_FALLBACK_URL="$(appcast_fallback_feed_url)"
 SPARKLE_PUBLIC_KEY_FILE="appcast/sparkle_public_key.txt"
 SPARKLE_FRAMEWORK="Sparkle.framework"
 
@@ -117,6 +118,8 @@ cat > "$APP_DIR/Contents/Info.plist" <<PLIST
     <true/>
     <key>SUFeedURL</key>
     <string>${APPCAST_URL}</string>
+    <key>SUFeedURLFallback</key>
+    <string>${APPCAST_FALLBACK_URL}</string>
     <key>SUPublicEDKey</key>
     <string>${SPARKLE_PUBLIC_KEY}</string>
     <key>SUEnableAutomaticChecks</key>

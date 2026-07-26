@@ -104,14 +104,21 @@ pub fn init() {
     let _ = SPARKLE.set(sparkle);
 }
 
-/// Refreshes proxy detection off the main thread, then runs `f` with the
-/// updater on the Slint event loop (Sparkle requires the main thread).
+/// Refreshes proxy detection and picks a working feed off the main thread,
+/// then runs `f` with the updater on the Slint event loop (Sparkle requires
+/// the main thread).
 #[cfg(target_os = "macos")]
 fn with_sparkle_on_main(f: impl FnOnce(&Sparkle) + Send + 'static) {
     std::thread::spawn(move || {
         network::prepare_network_for_sparkle();
+        // Re-decided before every check: the user may connect or drop a VPN
+        // between checks, which flips which feed Cloudflare will serve.
+        let feed_override = network::resolve_feed_url();
         let _ = slint::invoke_from_event_loop(move || {
             if let Some(sparkle) = SPARKLE.get() {
+                if let Some(url) = feed_override {
+                    sparkle.set_feed_url_override(Some(url));
+                }
                 f(sparkle);
             }
         });

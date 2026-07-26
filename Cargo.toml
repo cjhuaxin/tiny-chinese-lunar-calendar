@@ -28,7 +28,7 @@ ed25519-dalek = { version = "2", features = ["pkcs8", "pem"] }
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = "0.6"
 objc2 = "0.6"
-objc2-foundation = { version = "0.3", features = ["NSURLSession", "NSError", "NSBundle", "NSCalendar"] }
+objc2-foundation = { version = "0.3", features = ["NSURLSession", "NSURLRequest", "NSURLResponse", "NSURL", "NSData", "NSError", "NSBundle", "NSCalendar"] }
 objc2-app-kit = "0.3"
 objc2-core-location = { version = "0.3", features = ["CLLocation", "CLLocationManager", "CLLocationManagerDelegate", "CLError", "block2"] }
 objc2-user-notifications = { version = "0.3", features = ["UNUserNotificationCenter", "UNNotification", "UNNotificationContent", "UNNotificationRequest", "UNNotificationResponse", "UNNotificationSettings", "UNNotificationTrigger", "UNNotificationSound", "block2"] }

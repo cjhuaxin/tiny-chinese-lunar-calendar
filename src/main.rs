@@ -145,7 +145,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         {
             updater::init();
             // Defer the background check so it cannot race with a user-initiated check.
-            slint::Timer::single_shot(Duration::from_secs(90), updater::check_in_background);
+            // TCLC_UPDATE_DELAY shortens the wait when testing the feed fallback.
+            let delay = std::env::var("TCLC_UPDATE_DELAY")
+                .ok()
+                .and_then(|value| value.parse().ok())
+                .unwrap_or(90);
+            slint::Timer::single_shot(
+                Duration::from_secs(delay),
+                updater::check_in_background,
+            );
         }
     });
 
