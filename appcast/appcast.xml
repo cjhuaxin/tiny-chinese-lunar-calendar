@@ -2,14 +2,14 @@
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
     <channel>
         <title>小小万年历</title>
-        <link>https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/releases/tag/v0.3.6</link>
+        <link>https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/releases/tag/v0.3.7</link>
         <description>Most recent updates to 小小万年历</description>
         <language>zh-cn</language>
         <item>
-            <title>Version 0.3.6</title>
-            <link>https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/releases/tag/v0.3.6</link>
-            <sparkle:version>262</sparkle:version>
-            <sparkle:shortVersionString>0.3.6</sparkle:shortVersionString>
+            <title>Version 0.3.7</title>
+            <link>https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/releases/tag/v0.3.7</link>
+            <sparkle:version>265</sparkle:version>
+            <sparkle:shortVersionString>0.3.7</sparkle:shortVersionString>
             <description><![CDATA[<!DOCTYPE html><html><head><meta charset="utf-8"><style>
 body {
     font-family: -apple-system, "PingFang SC", sans-serif;
@@ -40,39 +40,35 @@ hr { border: none; border-top: 1px solid rgba(61, 46, 31, 0.15); margin: 14px 0;
     hr { border-top-color: rgba(232, 226, 216, 0.2); }
 }
 </style></head><body>
-<h2>✨ 小小万年历 0.3.6</h2>
-<p>新增天气灾害预警：台风、暴雨来了，菜单栏第一时间告诉你。</p>
+<h2>✨ 小小万年历 0.3.7</h2>
+<p>修复使用代理 / VPN 时「检查更新」报「获取升级信息时出现错误」。</p>
 <hr>
-<h3>⚠️ 天气预警</h3>
+<h3>🔄 检查更新更稳</h3>
 <ul>
-<li>所在地发布灾害预警时，日历顶部出现预警条，按红 / 橙 / 黄 / 蓝分级着色</li>
-<li>点击预警条查看完整预警全文与防御指引，多条预警按等级排列</li>
-<li>菜单栏图标出现同色角标，不打开日历也能看到</li>
-<li><strong>橙色及以上</strong>预警发送系统通知；同一条预警只通知一次，夜间 22:00–07:00 延迟到早上（红色除外）</li>
-<li>数据来源：国家预警信息发布中心（经和风天气）</li>
-<li>新增「显示天气预警」与「橙色及以上预警发送系统通知」两个开关，位于设置 →「显示天气」下方</li>
+<li>修复开启代理 / VPN 时点击「检查更新」出现「获取升级信息时出现错误」的问题</li>
 </ul>
-<h3>🔤 字体与显示优化</h3>
+<p>原因是更新源走 Cloudflare，而 Cloudflare 会对机房 IP 间歇性下发人机验证，返回一个验证网页而不是更新信息，更新程序无法识别。</p>
 <ul>
-<li>扩充内置楷体字库至 GB2312 一级字，预警正文等长文本不再出现个别字掉字、字体不一致</li>
-<li>预警等级标签直接写出「橙色」「黄色」，不再只靠颜色区分</li>
-<li>无预警时界面与此前完全一致，不占任何空间</li>
+<li>更新源改为双通道：主更新源取不到有效更新信息时，自动切换到 GitHub 备用源</li>
+<li>每次检查都会重新判断走哪条通道，中途开关代理也能正确切换</li>
 </ul>
 <hr>
 <h3>📦 安装与升级</h3>
 <ul>
 <li><strong>0.3.x 用户</strong>：点击菜单栏图标 → 检查更新，即可自动升级</li>
-<li><strong>0.2.5 及更早版本</strong>：请手动下载下方 <strong>xiaoxiao-wannianli-0.3.6.dmg</strong> 安装，之后即可恢复自动更新</li>
 </ul>
-<p>首次触发橙色及以上预警时，系统会询问通知权限，允许后即可收到推送。</p>
+<p>如果此前一直报错升不上来，请临时关闭代理后再检查更新，或直接下载下方 <strong>xiaoxiao-wannianli-0.3.7.dmg</strong> 手动安装；装上本版后即可恢复正常。</p>
+<ul>
+<li><strong>0.2.5 及更早版本</strong>：请手动下载下方 DMG 安装，之后即可恢复自动更新</li>
+</ul>
 <hr>
-<p><strong>完整变更</strong>: <a href="https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/compare/v0.3.5...v0.3.6">https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/compare/v0.3.5...v0.3.6</a></p>
+<p><strong>完整变更</strong>: <a href="https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/compare/v0.3.6...v0.3.7">https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/compare/v0.3.6...v0.3.7</a></p>
 </body></html>]]></description>
-            <pubDate>Sun, 26 Jul 2026 08:39:02 +0000</pubDate>
+            <pubDate>Sun, 26 Jul 2026 16:35:54 +0000</pubDate>
             <enclosure
-                url="https://tclc-updates.cjhuaxin.cc/releases/xiaoxiao-wannianli-0.3.6.zip"
-                sparkle:edSignature="RU6YPAtf9oVmZSxn0DUFZaIArqFqCGh00qYJHjBZBq76eEFRWTbm4wxZg5TRws46lz2rjckj967oLSTy20wYDQ=="
-                length="11699302"
+                url="https://tclc-updates.cjhuaxin.cc/releases/xiaoxiao-wannianli-0.3.7.zip"
+                sparkle:edSignature="sFZVjIQYCeWP0+3pJZl0Y/+/kX9a8HSOPFIqXM4QuEPkF9M6Kt9pzxcQfqO3UaA3br0RH05cAzP1ExW3/gQxBw=="
+                length="11710476"
                 type="application/octet-stream" />
         </item>
     </channel>
