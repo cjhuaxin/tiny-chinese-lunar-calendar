@@ -3,6 +3,7 @@ use std::path::Path;
 
 fn main() {
     embed_qweather_credentials();
+    embed_ipgeo_credentials();
 
     slint_build::compile("ui/app.slint").expect("failed to compile slint ui");
 
@@ -104,6 +105,42 @@ fn embed_qweather_credentials() {
             "cargo:warning=QWeather JWT credentials missing. \
              Copy qweather.local.example.json to qweather.local.json, generate an Ed25519 key pair, \
              upload the public key to the QWeather console, and save the private key as qweather.private.pem."
+        );
+    }
+}
+
+/// BigDataCloud API key for IP geolocation fallback (see ipgeo.local.example.json).
+fn embed_ipgeo_credentials() {
+    println!("cargo:rerun-if-changed=ipgeo.local.json");
+    println!("cargo:rerun-if-env-changed=BIGDATACLOUD_API_KEY");
+
+    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR");
+    let local_path = Path::new(&manifest_dir).join("ipgeo.local.json");
+
+    let mut bdc_key = String::new();
+    if let Ok(content) = fs::read_to_string(&local_path) {
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+            bdc_key = json
+                .get("bigdatacloud_key")
+                .and_then(|value| value.as_str())
+                .unwrap_or_default()
+                .to_string();
+        }
+    }
+
+    if let Ok(value) = std::env::var("BIGDATACLOUD_API_KEY") {
+        if !value.is_empty() {
+            bdc_key = value;
+        }
+    }
+
+    println!("cargo:rustc-env=BIGDATACLOUD_API_KEY={bdc_key}");
+
+    if bdc_key.is_empty() {
+        println!(
+            "cargo:warning=BigDataCloud API key missing. \
+             Copy ipgeo.local.example.json to ipgeo.local.json and set bigdatacloud_key, \
+             or export BIGDATACLOUD_API_KEY. IP fallback will use ip9.com.cn only when BDC is skipped."
         );
     }
 }

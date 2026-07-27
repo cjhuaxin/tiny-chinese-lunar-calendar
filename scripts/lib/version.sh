@@ -79,6 +79,60 @@ r2_upload() {
         --no-progress
 }
 
+# r2_delete <remote-key>
+r2_delete() {
+    local key="$1"
+    AWS_ACCESS_KEY_ID="$(r2_get access_key_id)" \
+    AWS_SECRET_ACCESS_KEY="$(r2_get secret_access_key)" \
+    AWS_DEFAULT_REGION="auto" \
+    aws s3 rm "s3://$(r2_get bucket)/${key}" \
+        --endpoint-url "https://$(r2_get account_id).r2.cloudflarestorage.com" \
+        --no-progress
+}
+
+# Keep only the newest $keep_count semver release artifacts under releases/.
+r2_prune_old_releases() {
+    local keep_count="${1:-10}"
+    local bucket endpoint prefix
+    bucket="$(r2_get bucket)"
+    endpoint="https://$(r2_get account_id).r2.cloudflarestorage.com"
+    prefix="releases/"
+
+    mapfile -t versions < <(
+        AWS_ACCESS_KEY_ID="$(r2_get access_key_id)" \
+        AWS_SECRET_ACCESS_KEY="$(r2_get secret_access_key)" \
+        AWS_DEFAULT_REGION="auto" \
+        aws s3 ls "s3://${bucket}/${prefix}" --endpoint-url "$endpoint" \
+            | awk '{print $4}' \
+            | sed -n "s/^${RELEASE_DMG_NAME}-\\([0-9][0-9]*\\.[0-9][0-9]*\\.[0-9][0-9]*\\)\\.\\(zip\\|dmg\\)\$/\\1/p" \
+            | sort -uV
+    )
+
+    local total="${#versions[@]}"
+    if [[ "$total" -le "$keep_count" ]]; then
+        echo "R2 releases: ${total} version(s), nothing to prune (keep ${keep_count})"
+        return 0
+    fi
+
+    local delete_count=$(( total - keep_count ))
+    echo "R2 releases: pruning ${delete_count} old version(s), keeping newest ${keep_count}..."
+
+    local i ver
+    for (( i = 0; i < delete_count; i++ )); do
+        ver="${versions[$i]}"
+        for ext in zip dmg; do
+            local key="${prefix}${RELEASE_DMG_NAME}-${ver}.${ext}"
+            if AWS_ACCESS_KEY_ID="$(r2_get access_key_id)" \
+                AWS_SECRET_ACCESS_KEY="$(r2_get secret_access_key)" \
+                AWS_DEFAULT_REGION="auto" \
+                aws s3 ls "s3://${bucket}/${key}" --endpoint-url "$endpoint" >/dev/null 2>&1; then
+                echo "  deleting s3://${bucket}/${key}"
+                r2_delete "$key"
+            fi
+        done
+    done
+}
+
 # Returns the repository's default branch (e.g. main).
 get_default_branch() {
     local branch

@@ -26,6 +26,14 @@ pub(crate) const QWEATHER_API_HOST: &str = match option_env!("QWEATHER_API_HOST"
     None => "",
 };
 
+const BIGDATACLOUD_API_KEY: &str = match option_env!("BIGDATACLOUD_API_KEY") {
+    Some(value) => value,
+    None => "",
+};
+
+const IP9_GEO_URL: &str = "https://ip9.com.cn/get";
+const BDC_GEO_URL: &str = "https://api-bdc.net/data/ip-geolocation";
+
 pub(crate) fn qweather_configured() -> bool {
     !QWEATHER_API_HOST.is_empty() && qweather_jwt::jwt_configured()
 }
@@ -90,6 +98,26 @@ fn now_secs() -> u64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or(Duration::ZERO)
         .as_secs()
+}
+
+fn today_ymd() -> String {
+    chrono::Local::now().format("%Y-%m-%d").to_string()
+}
+
+/// QWeather 30d/3d always anchor on the fetch day's "today". A cache from
+/// yesterday still lists that date; drop past days and reject caches that no
+/// longer include the current local date.
+fn forecast_for_current_day(days: Vec<DailyForecast>) -> Option<Vec<DailyForecast>> {
+    let today = today_ymd();
+    let pruned: Vec<DailyForecast> = days
+        .into_iter()
+        .filter(|d| d.date.as_str() >= today.as_str())
+        .collect();
+    if pruned.iter().any(|d| d.date == today) {
+        Some(pruned)
+    } else {
+        None
+    }
 }
 
 fn weather_cache_path() -> Result<PathBuf, String> {
@@ -197,7 +225,7 @@ fn load_forecast_cache(lat: f64, lon: f64) -> Option<Vec<DailyForecast>> {
     if now_secs().saturating_sub(cache.fetched_at) > FORECAST_TTL_SECS {
         return None;
     }
-    Some(cache.days)
+    forecast_for_current_day(cache.days)
 }
 
 fn save_forecast_cache(lat: f64, lon: f64, days: &[DailyForecast]) -> Result<(), String> {
@@ -247,17 +275,22 @@ fn set_memory(snapshot: WeatherSnapshot) {
 }
 
 fn set_forecast_memory(days: Vec<DailyForecast>) {
+    let Some(pruned) = forecast_for_current_day(days) else {
+        if let Ok(mut guard) = FORECAST_STATE.lock() {
+            *guard = None;
+        }
+        return;
+    };
     if let Ok(mut guard) = FORECAST_STATE.lock() {
-        *guard = Some(Arc::new(days));
+        *guard = Some(Arc::new(pruned));
     }
 }
 
 /// The most recent 30-day forecast, for the calendar grid cells.
 pub fn daily_forecasts() -> Option<Arc<Vec<DailyForecast>>> {
-    FORECAST_STATE
-        .lock()
-        .ok()
-        .and_then(|guard| guard.as_ref().map(Arc::clone))
+    let guard = FORECAST_STATE.lock().ok()?;
+    let days = guard.as_ref()?;
+    forecast_for_current_day((**days).clone()).map(Arc::new)
 }
 
 pub fn current_weather() -> Option<Arc<WeatherSnapshot>> {
@@ -341,24 +374,91 @@ fn curl_get_plain_once(url: &str, proxy: Option<&str>) -> Result<Vec<u8>, String
     }
 }
 
+fn parse_lat_lon_from_strings(lat: &str, lon: &str) -> Result<(f64, f64), String> {
+    let lat = lat
+        .trim()
+        .parse::<f64>()
+        .map_err(|_| format!("invalid latitude: {lat}"))?;
+    let lon = lon
+        .trim()
+        .parse::<f64>()
+        .map_err(|_| format!("invalid longitude: {lon}"))?;
+    Ok((lat, lon))
+}
+
+fn parse_bigdatacloud_ip_coords(body: &[u8]) -> Result<(f64, f64), String> {
+    let json: serde_json::Value = serde_json::from_slice(body).map_err(|e| e.to_string())?;
+    if json.get("isReachableGlobally").and_then(|v| v.as_bool()) == Some(false) {
+        return Err("IP not reachable globally".to_string());
+    }
+    let location = json
+        .get("location")
+        .ok_or_else(|| "missing location".to_string())?;
+    let lat = location
+        .get("latitude")
+        .and_then(|v| v.as_f64())
+        .ok_or_else(|| "missing latitude".to_string())?;
+    let lon = location
+        .get("longitude")
+        .and_then(|v| v.as_f64())
+        .ok_or_else(|| "missing longitude".to_string())?;
+    Ok((lat, lon))
+}
+
+fn parse_ip9_coords(body: &[u8]) -> Result<(f64, f64), String> {
+    let json: serde_json::Value = serde_json::from_slice(body).map_err(|e| e.to_string())?;
+    let ret = json.get("ret").and_then(|v| v.as_i64()).unwrap_or(0);
+    if ret != 200 {
+        return Err(format!("ip9 returned ret {ret}"));
+    }
+    let data = json
+        .get("data")
+        .ok_or_else(|| "missing data".to_string())?;
+    let lat = data
+        .get("lat")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "missing lat".to_string())?;
+    let lon = data
+        .get("lng")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "missing lng".to_string())?;
+    parse_lat_lon_from_strings(lat, lon)
+}
+
+/// BigDataCloud IP geolocation (primary). Uses the caller's public IP when `ip`
+/// is omitted. Never routed through the local HTTP proxy.
+fn fetch_bigdatacloud_ip_coordinates() -> Result<(f64, f64), String> {
+    if BIGDATACLOUD_API_KEY.is_empty() {
+        return Err("BigDataCloud API key not configured".to_string());
+    }
+    let url = format!(
+        "{BDC_GEO_URL}?localityLanguage=zh&key={}",
+        BIGDATACLOUD_API_KEY
+    );
+    let body = curl_get_plain_once(&url, None)?;
+    parse_bigdatacloud_ip_coords(&body)
+}
+
+/// ip9.com.cn (CN-oriented fallback). Never routed through the local HTTP proxy.
+fn fetch_ip9_ip_coordinates() -> Result<(f64, f64), String> {
+    let body = curl_get_plain_once(IP9_GEO_URL, None)?;
+    parse_ip9_coords(&body)
+}
+
 /// Resolves approximate coordinates from the public IP when CoreLocation fails.
+/// Primary: BigDataCloud; fallback: ip9.com.cn (domestic IP database).
 /// Never routed through the local proxy: geolocating the proxy's exit node
 /// would return the wrong city.
 pub fn fetch_ip_coordinates() -> Result<(f64, f64), String> {
-    let body = curl_get_plain_once("http://ip-api.com/json/?fields=status,lat,lon", None)?;
-    let json: serde_json::Value = serde_json::from_slice(&body).map_err(|e| e.to_string())?;
-    if json.get("status").and_then(|v| v.as_str()) != Some("success") {
-        return Err("IP geolocation failed".to_string());
+    match fetch_bigdatacloud_ip_coordinates() {
+        Ok(coords) => Ok(coords),
+        Err(bdc_err) => {
+            eprintln!("BigDataCloud IP geolocation failed: {bdc_err}");
+            fetch_ip9_ip_coordinates().map_err(|ip9_err| {
+                format!("BigDataCloud: {bdc_err}; ip9: {ip9_err}")
+            })
+        }
     }
-    let lat = json
-        .get("lat")
-        .and_then(|v| v.as_f64())
-        .ok_or_else(|| "missing lat".to_string())?;
-    let lon = json
-        .get("lon")
-        .and_then(|v| v.as_f64())
-        .ok_or_else(|| "missing lon".to_string())?;
-    Ok((lat, lon))
 }
 
 /// Disk cache first, then IP geolocation as a last resort.
@@ -456,7 +556,7 @@ fn ensure_forecast(lat: f64, lon: f64) -> (String, String) {
         },
     };
 
-    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let today = today_ymd();
     let range = days
         .iter()
         .find(|d| d.date == today)
@@ -467,6 +567,27 @@ fn ensure_forecast(lat: f64, lon: f64) -> (String, String) {
         set_forecast_memory(days);
     }
     range
+}
+
+/// After the local calendar day changes, in-memory forecast may still list
+/// yesterday. Refresh from disk/network when the pruned view no longer matches.
+pub fn refresh_forecast_after_day_change(on_done: impl Fn() + Send + 'static) {
+    if daily_forecasts().is_some() {
+        on_done();
+        return;
+    }
+    let Some((lat, lon)) = cached_coordinates().or_else(resolve_coordinates_fallback) else {
+        on_done();
+        return;
+    };
+    if !qweather_configured() {
+        on_done();
+        return;
+    }
+    std::thread::spawn(move || {
+        let _ = ensure_forecast(lat, lon);
+        on_done();
+    });
 }
 
 fn fetch_weather_now(lat: f64, lon: f64) -> Result<WeatherSnapshot, String> {
@@ -771,6 +892,27 @@ pub fn apply_weather_to_window(main: &crate::MainWindow) {
         main.set_weather_text(hint.into());
         main.set_weather_icon_kind("unknown".into());
         clear_weather_details(main);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_bigdatacloud_sample() {
+        let body = br#"{"isReachableGlobally":true,"location":{"latitude":22.5455,"longitude":114.0683}}"#;
+        let (lat, lon) = parse_bigdatacloud_ip_coords(body).unwrap();
+        assert!((lat - 22.5455).abs() < 1e-6);
+        assert!((lon - 114.0683).abs() < 1e-6);
+    }
+
+    #[test]
+    fn parse_ip9_sample() {
+        let body = br#"{"ret":200,"data":{"lat":"22.53291","lng":"113.93029"}}"#;
+        let (lat, lon) = parse_ip9_coords(body).unwrap();
+        assert!((lat - 22.53291).abs() < 1e-6);
+        assert!((lon - 113.93029).abs() < 1e-6);
     }
 }
 

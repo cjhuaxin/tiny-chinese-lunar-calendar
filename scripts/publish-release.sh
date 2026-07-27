@@ -82,6 +82,7 @@ if r2_configured; then
     r2_upload "$ZIP_PATH" "releases/${RELEASE_DMG_NAME}-${VERSION}.zip"
     r2_upload "$DMG_PATH" "releases/$(basename "$DMG_PATH")"
     r2_upload "$APPCAST_FILE" "appcast.xml" "application/xml"
+    r2_prune_old_releases 10
     echo "R2 mirror updated: $(r2_get public_base_url)/appcast.xml"
 fi
 

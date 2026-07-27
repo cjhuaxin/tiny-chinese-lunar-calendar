@@ -1023,6 +1023,21 @@ pub fn handle_date_rollover(main: &MainWindow, state: &Rc<State>) {
     } else {
         refresh_all(main, state);
     }
+    if state.settings.borrow().show_weather {
+        let main_weak = main.as_weak();
+        weather::refresh_forecast_after_day_change(move || {
+            let main_weak = main_weak.clone();
+            let _ = slint::invoke_from_event_loop(move || {
+                let Some(main) = main_weak.upgrade() else {
+                    return;
+                };
+                with_app(|app| {
+                    refresh_grid(&main, &app.state);
+                    weather::apply_weather_to_window(&main);
+                });
+            });
+        });
+    }
 }
 
 pub fn refresh_all(main: &MainWindow, state: &Rc<State>) {
@@ -1037,6 +1052,7 @@ fn refresh_grid(main: &MainWindow, state: &Rc<State>) {
     let month = state.focused_month.get();
     let selected = *state.selected_date.borrow();
 
+    let today_ymd = today().format("%Y-%m-%d").to_string();
     let grid = build_month_grid(year, month, &settings, selected);
 
     // date → (icon kind, "26~34°") from the cached 30-day forecast; empty
@@ -1045,7 +1061,11 @@ fn refresh_grid(main: &MainWindow, state: &Rc<State>) {
         weather::daily_forecasts()
             .map(|days| {
                 days.iter()
-                    .filter(|d| !d.temp_min.is_empty() && !d.temp_max.is_empty())
+                    .filter(|d| {
+                        !d.temp_min.is_empty()
+                            && !d.temp_max.is_empty()
+                            && d.date.as_str() >= today_ymd.as_str()
+                    })
                     .map(|d| {
                         (
                             d.date.clone(),
@@ -1079,7 +1099,11 @@ fn refresh_grid(main: &MainWindow, state: &Rc<State>) {
         .map(|cell| {
             // Outside-month days get weather too when the 30-day window
             // covers them; the cell renders them in the muted outside tint.
-            let wx = forecast.get(&cell.date);
+            let wx = if cell.date.as_str() >= today_ymd.as_str() {
+                forecast.get(&cell.date)
+            } else {
+                None
+            };
             let icon = match (cell.is_today, &live_icon, wx) {
                 (true, Some(live), Some(_)) => live.clone(),
                 _ => wx.map(|(icon, _)| icon.clone()).unwrap_or_default(),
