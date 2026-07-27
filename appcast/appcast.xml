@@ -2,14 +2,14 @@
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
     <channel>
         <title>小小万年历</title>
-        <link>https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/releases/tag/v0.3.7</link>
+        <link>https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/releases/tag/v0.3.8</link>
         <description>Most recent updates to 小小万年历</description>
         <language>zh-cn</language>
         <item>
-            <title>Version 0.3.7</title>
-            <link>https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/releases/tag/v0.3.7</link>
-            <sparkle:version>265</sparkle:version>
-            <sparkle:shortVersionString>0.3.7</sparkle:shortVersionString>
+            <title>Version 0.3.8</title>
+            <link>https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/releases/tag/v0.3.8</link>
+            <sparkle:version>268</sparkle:version>
+            <sparkle:shortVersionString>0.3.8</sparkle:shortVersionString>
             <description><![CDATA[<!DOCTYPE html><html><head><meta charset="utf-8"><style>
 body {
     font-family: -apple-system, "PingFang SC", sans-serif;
@@ -40,35 +40,31 @@ hr { border: none; border-top: 1px solid rgba(61, 46, 31, 0.15); margin: 14px 0;
     hr { border-top-color: rgba(232, 226, 216, 0.2); }
 }
 </style></head><body>
-<h2>✨ 小小万年历 0.3.7</h2>
-<p>修复使用代理 / VPN 时「检查更新」报「获取升级信息时出现错误」。</p>
+<h2>✨ 小小万年历 0.3.8</h2>
+<p>偏好设置与天气定位体验优化。</p>
 <hr>
-<h3>🔄 检查更新更稳</h3>
+<h3>⚙️ 偏好设置</h3>
 <ul>
-<li>修复开启代理 / VPN 时点击「检查更新」出现「获取升级信息时出现错误」的问题</li>
+<li>设置项增多后内容可滚动，底部「保存并关闭」按钮始终可见</li>
 </ul>
-<p>原因是更新源走 Cloudflare，而 Cloudflare 会对机房 IP 间歇性下发人机验证，返回一个验证网页而不是更新信息，更新程序无法识别。</p>
+<h3>🌤 天气与定位</h3>
 <ul>
-<li>更新源改为双通道：主更新源取不到有效更新信息时，自动切换到 GitHub 备用源</li>
-<li>每次检查都会重新判断走哪条通道，中途开关代理也能正确切换</li>
+<li>跨日后不再给「昨天」的日历格显示预报图标；过期预报缓存会自动刷新</li>
+<li>IP 定位兜底改为 <strong>BigDataCloud 优先</strong>，国内失败时再用 <strong>ip9.com.cn</strong>（移除 ip-api）</li>
 </ul>
 <hr>
 <h3>📦 安装与升级</h3>
 <ul>
-<li><strong>0.3.x 用户</strong>：点击菜单栏图标 → 检查更新，即可自动升级</li>
-</ul>
-<p>如果此前一直报错升不上来，请临时关闭代理后再检查更新，或直接下载下方 <strong>xiaoxiao-wannianli-0.3.7.dmg</strong> 手动安装；装上本版后即可恢复正常。</p>
-<ul>
-<li><strong>0.2.5 及更早版本</strong>：请手动下载下方 DMG 安装，之后即可恢复自动更新</li>
+<li><strong>0.3.x 用户</strong>：菜单栏 → 检查更新，或下载 <strong>xiaoxiao-wannianli-0.3.8.dmg</strong></li>
 </ul>
 <hr>
-<p><strong>完整变更</strong>: <a href="https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/compare/v0.3.6...v0.3.7">https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/compare/v0.3.6...v0.3.7</a></p>
+<p><strong>完整变更</strong>: <a href="https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/compare/v0.3.7...v0.3.8">https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/compare/v0.3.7...v0.3.8</a></p>
 </body></html>]]></description>
-            <pubDate>Sun, 26 Jul 2026 16:35:54 +0000</pubDate>
+            <pubDate>Mon, 27 Jul 2026 06:33:53 +0000</pubDate>
             <enclosure
-                url="https://tclc-updates.cjhuaxin.cc/releases/xiaoxiao-wannianli-0.3.7.zip"
-                sparkle:edSignature="sFZVjIQYCeWP0+3pJZl0Y/+/kX9a8HSOPFIqXM4QuEPkF9M6Kt9pzxcQfqO3UaA3br0RH05cAzP1ExW3/gQxBw=="
-                length="11710476"
+                url="https://tclc-updates.cjhuaxin.cc/releases/xiaoxiao-wannianli-0.3.8.zip"
+                sparkle:edSignature="1LxTrkhpfePTx0tLCdM0ilQvAvqxGbdfPLfo0D3dP6rcYQ5qZDxF4ANTTSxepDSziKSqIGQ6SFOYWHUKWHtABA=="
+                length="11725953"
                 type="application/octet-stream" />
         </item>
     </channel>
