@@ -98,13 +98,16 @@ r2_prune_old_releases() {
     endpoint="https://$(r2_get account_id).r2.cloudflarestorage.com"
     prefix="releases/"
 
-    mapfile -t versions < <(
+    local versions=()
+    while IFS= read -r ver; do
+        [[ -n "$ver" ]] && versions+=("$ver")
+    done < <(
         AWS_ACCESS_KEY_ID="$(r2_get access_key_id)" \
         AWS_SECRET_ACCESS_KEY="$(r2_get secret_access_key)" \
         AWS_DEFAULT_REGION="auto" \
         aws s3 ls "s3://${bucket}/${prefix}" --endpoint-url "$endpoint" \
             | awk '{print $4}' \
-            | sed -n "s/^${RELEASE_DMG_NAME}-\\([0-9][0-9]*\\.[0-9][0-9]*\\.[0-9][0-9]*\\)\\.\\(zip\\|dmg\\)\$/\\1/p" \
+            | sed -En "s/^${RELEASE_DMG_NAME}-([0-9]+\\.[0-9]+\\.[0-9]+)\\.(zip|dmg)\$/\\1/p" \
             | sort -uV
     )
 
