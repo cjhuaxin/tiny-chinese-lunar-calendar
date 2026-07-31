@@ -2,14 +2,14 @@
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
     <channel>
         <title>小小万年历</title>
-        <link>https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/releases/tag/v0.3.9</link>
+        <link>https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/releases/tag/v0.3.10</link>
         <description>Most recent updates to 小小万年历</description>
         <language>zh-cn</language>
         <item>
-            <title>Version 0.3.9</title>
-            <link>https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/releases/tag/v0.3.9</link>
-            <sparkle:version>272</sparkle:version>
-            <sparkle:shortVersionString>0.3.9</sparkle:shortVersionString>
+            <title>Version 0.3.10</title>
+            <link>https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/releases/tag/v0.3.10</link>
+            <sparkle:version>275</sparkle:version>
+            <sparkle:shortVersionString>0.3.10</sparkle:shortVersionString>
             <description><![CDATA[<!DOCTYPE html><html><head><meta charset="utf-8"><style>
 body {
     font-family: -apple-system, "PingFang SC", sans-serif;
@@ -40,27 +40,27 @@ hr { border: none; border-top: 1px solid rgba(61, 46, 31, 0.15); margin: 14px 0;
     hr { border-top-color: rgba(232, 226, 216, 0.2); }
 }
 </style></head><body>
-<h2>✨ 小小万年历 0.3.9</h2>
-<p>天气定位兜底更可靠：按网络记住精确位置，IP 兜底改用 api.ip.sb。</p>
+<h2>✨ 小小万年历 0.3.10</h2>
+<p>修复天气预警详情里多条消息重叠、右侧裁切与留白过大的问题。</p>
 <hr>
-<h3>🌤 天气与定位</h3>
+<h3>⚠️ 天气预警</h3>
 <ul>
-<li>CoreLocation 成功时，按<strong>当前网络</strong>（默认网关 MAC）记住精确坐标；同一 Wi-Fi/有线网络下定位失败时优先复用，避免同城跨区（如家/公司）被 IP 猜错区</li>
-<li>IP 定位兜底：<strong>BigDataCloud 优先</strong>，失败时使用 <strong>api.ip.sb</strong>（替换 ip9.com.cn，市级坐标更稳定）</li>
+<li>详情弹窗中多条预警正文改为 Rust 预分行 + 固定列宽展示，避免 Slint 换行高度计算错误导致文字叠在一起</li>
+<li>修正 ScrollView 内单行文本被横向裁剪的问题，并微调列宽与换行余量，在不被截断的前提下减少右侧空白</li>
 </ul>
 <hr>
 <h3>📦 安装与升级</h3>
 <ul>
-<li><strong>0.3.x 用户</strong>：菜单栏 → 检查更新，或下载 <strong>xiaoxiao-wannianli-0.3.9.dmg</strong></li>
+<li><strong>0.3.x 用户</strong>：菜单栏 → 检查更新，或下载 <strong>xiaoxiao-wannianli-0.3.10.dmg</strong></li>
 </ul>
 <hr>
-<p><strong>完整变更</strong>: <a href="https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/compare/v0.3.8...v0.3.9">https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/compare/v0.3.8...v0.3.9</a></p>
+<p><strong>完整变更</strong>: <a href="https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/compare/v0.3.9...v0.3.10">https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/compare/v0.3.9...v0.3.10</a></p>
 </body></html>]]></description>
-            <pubDate>Fri, 31 Jul 2026 02:11:18 +0000</pubDate>
+            <pubDate>Fri, 31 Jul 2026 07:07:27 +0000</pubDate>
             <enclosure
-                url="https://tclc-updates.cjhuaxin.cc/releases/xiaoxiao-wannianli-0.3.9.zip"
-                sparkle:edSignature="GbW7T3Dz0wHv+uLkoR5rZS6FjdgCxD423V8IPTOigOk/ao/wYv+GsG1BGq7ttH55WPnJAWH4gLdMgY54V1o4Aw=="
-                length="11735968"
+                url="https://tclc-updates.cjhuaxin.cc/releases/xiaoxiao-wannianli-0.3.10.zip"
+                sparkle:edSignature="yW2JzZ2CACv/QZvoTeeN3LqzbbF874+AZLsTToD0/yWiV8VzVvPYV8QQyGf2+q298SY0Nj2lpYLQTCeiYKk/Ag=="
+                length="11741904"
                 type="application/octet-stream" />
         </item>
     </channel>
