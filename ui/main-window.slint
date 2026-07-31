@@ -412,7 +412,7 @@ export component MainWindow inherits Window {
             }
 
             warning-dialog := Rectangle {
-                width: 400px;
+                width: Theme.warning-detail-w;
                 height: 310px;
                 background: Theme.paper-bg;
                 border-radius: 12px;
@@ -474,20 +474,18 @@ export component MainWindow inherits Window {
 
                     warning-scroll := ScrollView {
                         vertical-stretch: 1;
-                        viewport-width: self.width;
-                        // Approximate content height: each alert ~ header 28 + body wrap.
-                        // ScrollView still works if viewport is taller than needed.
-                        VerticalLayout {
-                            padding-left: 16px;
-                            padding-right: 16px;
+
+                        warning-list := VerticalLayout {
+                            padding-left: Theme.warning-body-pad-left;
+                            padding-right: Theme.warning-body-pad-right;
                             padding-top: 14px;
                             padding-bottom: 10px;
-                            spacing: 14px;
-                            width: 100%;
+                            spacing: 8px;
+                            width: warning-dialog.width;
 
                             for item[i] in root.warning-details : VerticalLayout {
-                                spacing: 8px;
-                                width: 100%;
+                                spacing: 6px;
+                                width: Theme.warning-body-text-width;
 
                                 HorizontalLayout {
                                     spacing: 8px;
@@ -505,12 +503,17 @@ export component MainWindow inherits Window {
                                     }
                                 }
 
-                                Text {
-                                    text: item.body;
-                                    font-size: 12.5px;
-                                    color: Theme.ink;
-                                    wrap: word-wrap;
-                                    width: 100%;
+                                warn-body-col := VerticalLayout {
+                                    spacing: 0px;
+                                    width: Theme.warning-body-text-width;
+
+                                    for line in item.body-lines : Text {
+                                        text: line;
+                                        font-size: Theme.warning-body-font-size;
+                                        color: Theme.ink;
+                                        width: Theme.warning-body-text-width;
+                                        horizontal-alignment: left;
+                                    }
                                 }
 
                                 if i + 1 < root.warning-details.length : Rectangle {
@@ -519,6 +522,8 @@ export component MainWindow inherits Window {
                                 }
                             }
                         }
+
+                        viewport-height: warning-list.preferred-height;
                     }
 
                     // footer attribution

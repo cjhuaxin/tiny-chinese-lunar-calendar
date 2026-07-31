@@ -57,5 +57,14 @@ export global Theme {
     out property <length> radius-cell: 8px;
     out property <length> radius-btn: 8px;
 
+    // Weather-warning detail sheet — keep in sync with services/insights/mod.rs.
+    out property <length> warning-detail-w: 400px;
+    out property <length> warning-body-pad-left: 16px;
+    out property <length> warning-body-pad-right: 28px;
+    out property <length> warning-body-extra-inset: 4px;
+    out property <length> warning-body-text-width:
+        root.warning-detail-w - root.warning-body-pad-left - root.warning-body-pad-right - root.warning-body-extra-inset;
+    out property <length> warning-body-font-size: 12.5px;
+
     out property <string> font-family: "LXGW WenKai";
 }

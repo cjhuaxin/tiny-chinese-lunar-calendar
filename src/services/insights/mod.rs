@@ -4,6 +4,8 @@ mod warning;
 
 use std::sync::{Arc, Mutex};
 
+use std::rc::Rc;
+
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 
@@ -136,6 +138,26 @@ pub fn warning_insights() -> Vec<Insight> {
     warnings
 }
 
+/// Keep in sync with `Theme.warning-*` in `theme.slint`.
+const WARNING_DETAIL_BODY_TEXT_WIDTH_PX: f32 = 352.0;
+const WARNING_DETAIL_BODY_FONT_PX: f32 = 12.5;
+
+fn warning_detail_body_lines(body: &str) -> slint::ModelRc<slint::SharedString> {
+    let lines = crate::textfit::wrap_text_lines(
+        body,
+        WARNING_DETAIL_BODY_TEXT_WIDTH_PX,
+        WARNING_DETAIL_BODY_FONT_PX,
+        false,
+    );
+    Rc::new(slint::VecModel::from(
+        lines
+            .into_iter()
+            .map(slint::SharedString::from)
+            .collect::<Vec<_>>(),
+    ))
+    .into()
+}
+
 /// Pushes strip + detail model properties onto the main window.
 pub fn apply_to_window(main: &MainWindow, show_warnings: bool) {
     if !show_warnings {
@@ -187,7 +209,7 @@ pub fn apply_to_window(main: &MainWindow, show_warnings: bool) {
             },
             level_label: w.level.color_label_zh().into(),
             issued: w.issued_at.clone().into(),
-            body: w.detail_body.clone().into(),
+            body_lines: warning_detail_body_lines(&w.detail_body),
         })
         .collect();
     main.set_warning_details(std::rc::Rc::new(slint::VecModel::from(items)).into());

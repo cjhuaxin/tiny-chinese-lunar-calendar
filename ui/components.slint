@@ -26,7 +26,9 @@ export struct WarningDetailItem {
     level-label: string, // "橙色" / "黄色" / "" — spelled out so the severity
                          // never depends on colour perception alone
     issued: string,
-    body: string,
+    // Pre-wrapped in Rust: Slint `Text` with word-wrap does not participate in
+    // vertical layout correctly inside ScrollView; one line per `Text` is stable.
+    body-lines: [string],
 }
 
 export component WeatherIcon inherits Rectangle {
