@@ -49,6 +49,13 @@ mod macos {
 
     fn store_coords(lat: f64, lon: f64) {
         weather::store_coordinates(lat, lon, weather::CoordSource::CoreLocation);
+        // Also remember this precise fix for the current network (gateway
+        // MAC), so future CoreLocation failures on the same network reuse it
+        // instead of degrading to city-level IP geolocation. Runs external
+        // commands (route/arp), so keep it off the main thread.
+        std::thread::spawn(move || {
+            crate::services::network_location::store_for_current_network(lat, lon);
+        });
     }
 
     // No in-process cache on top: the disk cache carries the TTL (1h for

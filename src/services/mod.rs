@@ -4,6 +4,7 @@ pub mod holiday;
 pub mod insights;
 pub mod international_festivals;
 pub mod location;
+pub mod network_location;
 pub mod notifications;
 pub mod qweather_jwt;
 pub mod weather;

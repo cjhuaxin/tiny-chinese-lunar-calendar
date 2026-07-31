@@ -140,7 +140,7 @@ fn embed_ipgeo_credentials() {
         println!(
             "cargo:warning=BigDataCloud API key missing. \
              Copy ipgeo.local.example.json to ipgeo.local.json and set bigdatacloud_key, \
-             or export BIGDATACLOUD_API_KEY. IP fallback will use ip9.com.cn only when BDC is skipped."
+             or export BIGDATACLOUD_API_KEY. IP fallback will use api.ip.sb only when BDC is skipped."
         );
     }
 }

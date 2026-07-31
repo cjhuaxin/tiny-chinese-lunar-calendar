@@ -31,7 +31,7 @@ const BIGDATACLOUD_API_KEY: &str = match option_env!("BIGDATACLOUD_API_KEY") {
     None => "",
 };
 
-const IP9_GEO_URL: &str = "https://ip9.com.cn/get";
+const IP_SB_GEO_URL: &str = "https://api.ip.sb/geoip";
 const BDC_GEO_URL: &str = "https://api-bdc.net/data/ip-geolocation";
 
 pub(crate) fn qweather_configured() -> bool {
@@ -42,12 +42,18 @@ pub(crate) fn qweather_configured() -> bool {
 #[serde(rename_all = "lowercase")]
 pub enum CoordSource {
     CoreLocation,
+    /// A past CoreLocation fix reused because the machine is on the same
+    /// network (matched by gateway MAC). Precise, but the fix is not fresh.
+    Network,
     Ip,
 }
 
 // CoreLocation fixes are trusted for an hour; IP geolocation is only
 // city-level (and skewed by proxies), so retry the real thing quickly.
+// Network-matched fixes sit in between: precise, but worth re-verifying
+// with CoreLocation regularly in case the network moved.
 const COORD_TTL_CORELOCATION_SECS: u64 = 60 * 60;
+const COORD_TTL_NETWORK_SECS: u64 = 30 * 60;
 const COORD_TTL_IP_SECS: u64 = 10 * 60;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -166,6 +172,7 @@ pub fn cached_coordinates() -> Option<(f64, f64)> {
     let cache = load_coord_cache()?;
     let ttl = match cache.source {
         CoordSource::CoreLocation => COORD_TTL_CORELOCATION_SECS,
+        CoordSource::Network => COORD_TTL_NETWORK_SECS,
         CoordSource::Ip => COORD_TTL_IP_SECS,
     };
     if now_secs().saturating_sub(cache.fetched_at) > ttl {
@@ -374,18 +381,6 @@ fn curl_get_plain_once(url: &str, proxy: Option<&str>) -> Result<Vec<u8>, String
     }
 }
 
-fn parse_lat_lon_from_strings(lat: &str, lon: &str) -> Result<(f64, f64), String> {
-    let lat = lat
-        .trim()
-        .parse::<f64>()
-        .map_err(|_| format!("invalid latitude: {lat}"))?;
-    let lon = lon
-        .trim()
-        .parse::<f64>()
-        .map_err(|_| format!("invalid longitude: {lon}"))?;
-    Ok((lat, lon))
-}
-
 fn parse_bigdatacloud_ip_coords(body: &[u8]) -> Result<(f64, f64), String> {
     let json: serde_json::Value = serde_json::from_slice(body).map_err(|e| e.to_string())?;
     if json.get("isReachableGlobally").and_then(|v| v.as_bool()) == Some(false) {
@@ -405,24 +400,17 @@ fn parse_bigdatacloud_ip_coords(body: &[u8]) -> Result<(f64, f64), String> {
     Ok((lat, lon))
 }
 
-fn parse_ip9_coords(body: &[u8]) -> Result<(f64, f64), String> {
+fn parse_ip_sb_coords(body: &[u8]) -> Result<(f64, f64), String> {
     let json: serde_json::Value = serde_json::from_slice(body).map_err(|e| e.to_string())?;
-    let ret = json.get("ret").and_then(|v| v.as_i64()).unwrap_or(0);
-    if ret != 200 {
-        return Err(format!("ip9 returned ret {ret}"));
-    }
-    let data = json
-        .get("data")
-        .ok_or_else(|| "missing data".to_string())?;
-    let lat = data
-        .get("lat")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| "missing lat".to_string())?;
-    let lon = data
-        .get("lng")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| "missing lng".to_string())?;
-    parse_lat_lon_from_strings(lat, lon)
+    let lat = json
+        .get("latitude")
+        .and_then(|v| v.as_f64())
+        .ok_or_else(|| "missing latitude".to_string())?;
+    let lon = json
+        .get("longitude")
+        .and_then(|v| v.as_f64())
+        .ok_or_else(|| "missing longitude".to_string())?;
+    Ok((lat, lon))
 }
 
 /// BigDataCloud IP geolocation (primary). Uses the caller's public IP when `ip`
@@ -439,14 +427,15 @@ fn fetch_bigdatacloud_ip_coordinates() -> Result<(f64, f64), String> {
     parse_bigdatacloud_ip_coords(&body)
 }
 
-/// ip9.com.cn (CN-oriented fallback). Never routed through the local HTTP proxy.
-fn fetch_ip9_ip_coordinates() -> Result<(f64, f64), String> {
-    let body = curl_get_plain_once(IP9_GEO_URL, None)?;
-    parse_ip9_coords(&body)
+/// api.ip.sb (open, key-less fallback). City-center coordinates only, but the
+/// city itself is reliable. Never routed through the local HTTP proxy.
+fn fetch_ip_sb_coordinates() -> Result<(f64, f64), String> {
+    let body = curl_get_plain_once(IP_SB_GEO_URL, None)?;
+    parse_ip_sb_coords(&body)
 }
 
 /// Resolves approximate coordinates from the public IP when CoreLocation fails.
-/// Primary: BigDataCloud; fallback: ip9.com.cn (domestic IP database).
+/// Primary: BigDataCloud; fallback: api.ip.sb.
 /// Never routed through the local proxy: geolocating the proxy's exit node
 /// would return the wrong city.
 pub fn fetch_ip_coordinates() -> Result<(f64, f64), String> {
@@ -454,16 +443,24 @@ pub fn fetch_ip_coordinates() -> Result<(f64, f64), String> {
         Ok(coords) => Ok(coords),
         Err(bdc_err) => {
             eprintln!("BigDataCloud IP geolocation failed: {bdc_err}");
-            fetch_ip9_ip_coordinates().map_err(|ip9_err| {
-                format!("BigDataCloud: {bdc_err}; ip9: {ip9_err}")
+            fetch_ip_sb_coordinates().map_err(|ip_sb_err| {
+                format!("BigDataCloud: {bdc_err}; ip.sb: {ip_sb_err}")
             })
         }
     }
 }
 
-/// Disk cache first, then IP geolocation as a last resort.
+/// Disk cache first, then the network-fingerprint map (precise coordinates
+/// recorded on this network by an earlier CoreLocation fix), then IP
+/// geolocation (city-level) as a last resort. IP databases cannot tell
+/// districts apart within a city, so a past precise fix on the same network
+/// always wins over them.
 pub fn resolve_coordinates_fallback() -> Option<(f64, f64)> {
     if let Some(coords) = cached_coordinates() {
+        return Some(coords);
+    }
+    if let Some(coords) = crate::services::network_location::lookup_current_network() {
+        store_coordinates(coords.0, coords.1, CoordSource::Network);
         return Some(coords);
     }
     let coords = fetch_ip_coordinates().ok()?;
@@ -908,11 +905,17 @@ mod tests {
     }
 
     #[test]
-    fn parse_ip9_sample() {
-        let body = br#"{"ret":200,"data":{"lat":"22.53291","lng":"113.93029"}}"#;
-        let (lat, lon) = parse_ip9_coords(body).unwrap();
-        assert!((lat - 22.53291).abs() < 1e-6);
-        assert!((lon - 113.93029).abs() < 1e-6);
+    fn parse_ip_sb_sample() {
+        let body = br#"{"region":"Guangdong","city":"Shenzhen","latitude":22.5455,"ip":"120.197.126.62","longitude":114.0683}"#;
+        let (lat, lon) = parse_ip_sb_coords(body).unwrap();
+        assert!((lat - 22.5455).abs() < 1e-6);
+        assert!((lon - 114.0683).abs() < 1e-6);
+    }
+
+    #[test]
+    fn parse_ip_sb_missing_coords() {
+        let body = br#"{"region":"Guangdong","city":"Shenzhen"}"#;
+        assert!(parse_ip_sb_coords(body).is_err());
     }
 }
 
