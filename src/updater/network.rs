@@ -1,52 +1,19 @@
-//! Network helpers for Sparkle: feed reachability probing, appcast validation
-//! and local-proxy fallback.
+//! Network helpers for Sparkle: feed reachability probing and appcast
+//! validation.
 
-use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::time::Duration;
 
-use objc2::runtime::AnyObject;
-use objc2::MainThreadMarker;
 use objc2_foundation::{
-    NSBundle, NSData, NSDictionary, NSError, NSHTTPURLResponse, NSNumber, NSString, NSURL,
-    NSURLRequest, NSURLRequestCachePolicy, NSURLResponse, NSURLSession,
-    NSURLSessionConfiguration,
+    NSBundle, NSData, NSError, NSHTTPURLResponse, NSString, NSURL, NSURLRequest,
+    NSURLRequestCachePolicy, NSURLResponse, NSURLSession,
 };
 
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
-const PROXY_PROBE_TIMEOUT: Duration = Duration::from_secs(2);
-const FEED_PROBE_TIMEOUT: Duration = Duration::from_secs(8);
-const PROXY_HOST: &str = "127.0.0.1";
-const PROXY_PORT: u16 = 7890;
+use super::logging::log;
 
-static PROXY_CONFIGURED: AtomicBool = AtomicBool::new(false);
-
-/// Returns whether a TCP connection to `host`:`port` can be established within `timeout`.
-fn can_connect(host: &str, port: u16, timeout: Duration) -> bool {
-    let endpoint = format!("{host}:{port}");
-    let Ok(mut addrs) = endpoint.to_socket_addrs() else {
-        return false;
-    };
-    addrs.any(|addr| tcp_connect(addr, timeout))
-}
-
-fn tcp_connect(addr: SocketAddr, timeout: Duration) -> bool {
-    TcpStream::connect_timeout(&addr, timeout).is_ok()
-}
-
-fn parse_host_port(url: &str) -> Option<(String, u16)> {
-    let rest = url
-        .strip_prefix("https://")
-        .or_else(|| url.strip_prefix("http://"))?;
-    let authority = rest.split('/').next()?;
-    if let Some((host, port)) = authority.split_once(':') {
-        port.parse().ok().map(|p| (host.to_string(), p))
-    } else {
-        let port = if url.starts_with("https://") { 443 } else { 80 };
-        Some((authority.to_string(), port))
-    }
-}
+/// A user-initiated check waits for this probing before Sparkle shows any UI,
+/// so the budget is kept short enough to pass for "the menu responded".
+const FEED_PROBE_TIMEOUT: Duration = Duration::from_secs(6);
 
 fn info_plist_string(key: &str) -> Option<String> {
     use objc2::msg_send;
@@ -100,9 +67,11 @@ fn looks_like_appcast(body: &[u8]) -> bool {
 
 /// Fetches `url` through `NSURLSession` and classifies the response.
 ///
-/// Deliberately not `curl`: curl ignores the macOS system proxy, so it would
-/// report the R2 mirror as healthy while Sparkle - which does honour the
-/// system proxy - gets a Cloudflare challenge from the proxy's exit IP.
+/// Deliberately `NSURLSession` and not a hand-rolled client: it honours the
+/// macOS system proxy exactly like Sparkle does, so the verdict matches what
+/// Sparkle will see. A client that bypassed the proxy would report the R2
+/// mirror as healthy while Sparkle gets a Cloudflare challenge from the
+/// proxy's exit IP.
 fn probe_feed(url: &str) -> FeedProbe {
     let Some(ns_url) = NSURL::URLWithString(&NSString::from_str(url)) else {
         return FeedProbe::Failed(format!("invalid feed URL: {url}"));
@@ -159,119 +128,37 @@ fn probe_feed(url: &str) -> FeedProbe {
 ///
 /// Must run off the main thread: it performs a blocking network request.
 pub fn resolve_feed_url() -> Option<String> {
-    let primary = feed_url()?;
+    let Some(primary) = feed_url() else {
+        log!("no feed URL configured");
+        return None;
+    };
     let fallback = fallback_feed_url()?;
     if fallback == primary {
         return None;
     }
 
-    match probe_feed(&primary) {
-        FeedProbe::Usable => None,
-        FeedProbe::Failed(err) => {
-            // Offline, or the primary host is unreachable. Trying the fallback
-            // costs one request and rescues censored/blocked primaries.
-            eprintln!("updater: primary feed unreachable ({err}); trying fallback");
-            probe_fallback(&fallback)
-        }
-        FeedProbe::Unusable(reason) => {
-            eprintln!("updater: primary feed returned no appcast ({reason}); trying fallback");
-            probe_fallback(&fallback)
-        }
-    }
-}
-
-fn probe_fallback(fallback: &str) -> Option<String> {
-    match probe_feed(fallback) {
-        FeedProbe::Usable => {
-            eprintln!("updater: using fallback feed {fallback}");
-            Some(fallback.to_string())
-        }
-        outcome => {
-            eprintln!("updater: fallback feed unusable ({outcome:?}); keeping primary");
-            None
-        }
-    }
-}
-
-fn configure_local_proxy(_mtm: MainThreadMarker) {
-    if PROXY_CONFIGURED.swap(true, Ordering::SeqCst) {
-        return;
-    }
-
-    let enable = NSNumber::new_bool(true);
-    let port = NSNumber::new_u16(PROXY_PORT);
-    let host = NSString::from_str(PROXY_HOST);
-
-    let k_http_enable = NSString::from_str("HTTPEnable");
-    let k_http_proxy = NSString::from_str("HTTPProxy");
-    let k_http_port = NSString::from_str("HTTPPort");
-    let k_https_enable = NSString::from_str("HTTPSEnable");
-    let k_https_proxy = NSString::from_str("HTTPSProxy");
-    let k_https_port = NSString::from_str("HTTPSPort");
-    let keys: [&NSString; 6] = [
-        &k_http_enable,
-        &k_http_proxy,
-        &k_http_port,
-        &k_https_enable,
-        &k_https_proxy,
-        &k_https_port,
-    ];
-    let values: [&objc2::runtime::AnyObject; 6] = [
-        enable.as_ref(),
-        host.as_ref(),
-        port.as_ref(),
-        enable.as_ref(),
-        host.as_ref(),
-        port.as_ref(),
-    ];
-    let proxy_dict: objc2::rc::Retained<NSDictionary<NSString, AnyObject>> =
-        NSDictionary::from_slices(&keys, &values);
-
-    let config = NSURLSessionConfiguration::defaultSessionConfiguration();
-    unsafe {
-        let proxy_ref: &NSDictionary<AnyObject, AnyObject> =
-            (&*proxy_dict).cast_unchecked::<AnyObject, AnyObject>();
-        config.setConnectionProxyDictionary(Some(proxy_ref));
-    }
-
-    eprintln!(
-        "updater: direct connection timed out; using local proxy {PROXY_HOST}:{PROXY_PORT}"
-    );
-}
-
-/// Probes reachability to the update feed. On connection timeout, falls back to a local
-/// HTTP proxy on port 7890 when that port is accepting connections.
-pub fn prepare_network_for_sparkle() {
-    let Some(feed_url) = feed_url() else {
-        eprintln!("updater: no feed URL configured");
-        return;
+    // Both feeds are probed at once. Sequentially they cost two timeouts back
+    // to back, and the user-initiated check sits behind that with no UI at all.
+    let fallback_probe = {
+        let fallback = fallback.clone();
+        std::thread::spawn(move || probe_feed(&fallback))
     };
+    let primary_outcome = probe_feed(&primary);
+    let fallback_outcome = fallback_probe
+        .join()
+        .unwrap_or(FeedProbe::Failed("fallback probe panicked".to_string()));
 
-    let Some((host, port)) = parse_host_port(&feed_url) else {
-        eprintln!("updater: could not parse feed URL: {feed_url}");
-        return;
-    };
-
-    if can_connect(&host, port, CONNECT_TIMEOUT) {
-        return;
+    if primary_outcome == FeedProbe::Usable {
+        return None;
     }
+    log!("primary feed unusable ({primary_outcome:?})");
 
-    eprintln!("updater: connection to {host}:{port} timed out after {}s", CONNECT_TIMEOUT.as_secs());
-
-    if !can_connect(PROXY_HOST, PROXY_PORT, PROXY_PROBE_TIMEOUT) {
-        eprintln!("updater: local proxy {PROXY_HOST}:{PROXY_PORT} is not available");
-        return;
+    if fallback_outcome == FeedProbe::Usable {
+        log!("using fallback feed {fallback}");
+        return Some(fallback);
     }
-
-    let Some(mtm) = MainThreadMarker::new() else {
-        let _ = slint::invoke_from_event_loop(|| {
-            if let Some(mtm) = MainThreadMarker::new() {
-                configure_local_proxy(mtm);
-            }
-        });
-        return;
-    };
-    configure_local_proxy(mtm);
+    log!("fallback feed unusable ({fallback_outcome:?}); keeping primary");
+    None
 }
 
 #[cfg(test)]
@@ -310,16 +197,4 @@ mod tests {
         assert!(!looks_like_appcast(&body));
     }
 
-    #[test]
-    fn parses_feed_host_and_port() {
-        assert_eq!(
-            parse_host_port("https://tclc-updates.cjhuaxin.cc/appcast.xml"),
-            Some(("tclc-updates.cjhuaxin.cc".to_string(), 443))
-        );
-        assert_eq!(
-            parse_host_port("http://example.com:8080/a.xml"),
-            Some(("example.com".to_string(), 8080))
-        );
-        assert_eq!(parse_host_port("ftp://example.com/a.xml"), None);
-    }
 }

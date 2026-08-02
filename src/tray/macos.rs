@@ -3,13 +3,11 @@ use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
 use objc2::MainThreadMarker;
 use objc2_app_kit::{
-    NSAboutPanelOptionApplicationName, NSAboutPanelOptionApplicationVersion,
-    NSAboutPanelOptionCredits, NSApplication, NSCellImagePosition, NSEvent, NSEventMask, NSMenu,
-    NSScreen, NSView, NSWorkspace, NSWorkspaceDidWakeNotification,
+    NSAboutPanelOptionApplicationName, NSAboutPanelOptionApplicationVersion, NSAlert, NSAlertStyle,
+    NSApplication, NSCellImagePosition, NSEvent, NSEventMask, NSMenu, NSScreen, NSView,
+    NSWorkspace, NSWorkspaceDidWakeNotification,
 };
-use objc2_foundation::{
-    NSDictionary, NSAttributedString, NSNotification, NSOperationQueue, NSSize, NSString,
-};
+use objc2_foundation::{NSDictionary, NSNotification, NSOperationQueue, NSSize, NSString};
 use std::mem;
 use std::ptr::NonNull;
 use tray_icon::TrayIcon;
@@ -46,46 +44,24 @@ pub fn raise_slint_window(window: &slint::Window) {
     });
 }
 
-fn about_panel_string(value: &str) -> Retained<AnyObject> {
-    Retained::into_super(Retained::into_super(NSString::from_str(value)))
-}
-
-/// Shows the standard macOS About panel with custom primary/secondary text.
-/// Pass `hide_credits: true` to omit the credits button (update status dialogs).
-fn show_about_style_panel(primary: &str, secondary: &str, hide_credits: bool, mtm: MainThreadMarker) {
+/// Shows a modal informational alert. Used for update-check outcomes Sparkle
+/// itself stays silent about, so a menu click is never a no-op on screen.
+pub fn show_info_alert(title: &str, body: &str) {
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
     activate_app();
 
-    if hide_credits {
-        let keys = [
-            unsafe { NSAboutPanelOptionApplicationName },
-            unsafe { NSAboutPanelOptionApplicationVersion },
-            unsafe { NSAboutPanelOptionCredits },
-        ];
-        let empty_credits =
-            NSAttributedString::from_nsstring(&NSString::from_str(""));
-        let objects: [Retained<AnyObject>; 3] = [
-            about_panel_string(primary),
-            about_panel_string(secondary),
-            Retained::into_super(Retained::into_super(empty_credits)),
-        ];
-        let dict = NSDictionary::from_retained_objects(&keys, &objects);
-        unsafe {
-            NSApplication::sharedApplication(mtm).orderFrontStandardAboutPanelWithOptions(&dict);
-        }
-    } else {
-        let keys = [
-            unsafe { NSAboutPanelOptionApplicationName },
-            unsafe { NSAboutPanelOptionApplicationVersion },
-        ];
-        let objects: [Retained<AnyObject>; 2] = [
-            about_panel_string(primary),
-            about_panel_string(secondary),
-        ];
-        let dict = NSDictionary::from_retained_objects(&keys, &objects);
-        unsafe {
-            NSApplication::sharedApplication(mtm).orderFrontStandardAboutPanelWithOptions(&dict);
-        }
-    }
+    let alert = NSAlert::new(mtm);
+    alert.setAlertStyle(NSAlertStyle::Informational);
+    alert.setMessageText(&NSString::from_str(title));
+    alert.setInformativeText(&NSString::from_str(body));
+    alert.addButtonWithTitle(&NSString::from_str("好"));
+    alert.runModal();
+}
+
+fn about_panel_string(value: &str) -> Retained<AnyObject> {
+    Retained::into_super(Retained::into_super(NSString::from_str(value)))
 }
 
 /// Shows the standard macOS About panel with the compile-time app version and
@@ -94,12 +70,20 @@ pub fn show_about_panel() {
     let Some(mtm) = MainThreadMarker::new() else {
         return;
     };
-    show_about_style_panel(
-        crate::settings::APP_NAME,
-        env!("CARGO_PKG_VERSION"),
-        false,
-        mtm,
-    );
+    activate_app();
+
+    let keys = [
+        unsafe { NSAboutPanelOptionApplicationName },
+        unsafe { NSAboutPanelOptionApplicationVersion },
+    ];
+    let objects: [Retained<AnyObject>; 2] = [
+        about_panel_string(crate::settings::APP_NAME),
+        about_panel_string(env!("CARGO_PKG_VERSION")),
+    ];
+    let dict = NSDictionary::from_retained_objects(&keys, &objects);
+    unsafe {
+        NSApplication::sharedApplication(mtm).orderFrontStandardAboutPanelWithOptions(&dict);
+    }
 }
 
 /// Forces tray menu icons into monochrome template rendering, matching the system Quit item.

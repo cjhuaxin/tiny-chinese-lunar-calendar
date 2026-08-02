@@ -6,21 +6,33 @@
 //! drove a custom status panel around an information-only probe, which kept
 //! deadlocking on edge cases (probe inside an active session, probe silently
 //! no-oping when an update was already staged, ...).
+//!
+//! Sparkle drops a `check_for_updates` call without any UI while it is busy
+//! downloading in the background, so every entry point gates on
+//! `canCheckForUpdates` and records the outcome in the updater log.
 
+pub(crate) mod logging;
 #[cfg(target_os = "macos")]
 mod network;
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
 use once_cell::sync::OnceCell;
 use sparklers::{Event, Sparkle, SparkleConfig};
 
+use logging::log;
+
 static SPARKLE: OnceCell<Sparkle> = OnceCell::new();
 
-/// Set while a check started through Sparkle's own UI is running (user click
-/// or window-open prompt), so its discoveries don't also queue a re-prompt.
-static UI_CHECK_ACTIVE: AtomicBool = AtomicBool::new(false);
+/// `SPUUpdateCheckUpdatesInBackground` from Sparkle's `SPUUpdateCheck.h`.
+/// `sparklers` 0.1 exposes the update-check kind only as a field type and
+/// never re-exports the enum, so the comparison value is rebuilt through its
+/// `From<isize>` impl with the type inferred at the comparison site.
+const SPU_UPDATE_CHECK_IN_BACKGROUND: isize = 1;
+
+/// `SUNoUpdateError` from Sparkle's `SUErrors.h`. Sparkle reports "you're up to
+/// date" as an aborting error, which is not one as far as the log is concerned.
+const SU_NO_UPDATE_ERROR: isize = 1001;
 
 /// Version found during the most recent check, kept until the cycle ends.
 static FOUND_VERSION: Mutex<Option<String>> = Mutex::new(None);
@@ -40,9 +52,6 @@ pub(crate) fn sparkle_feed_url() -> Option<String> {
 
 /// Initializes the Sparkle updater. No-op when not running inside a .app bundle.
 pub fn init() {
-    #[cfg(target_os = "macos")]
-    network::prepare_network_for_sparkle();
-
     let config = SparkleConfig {
         version: env!("CARGO_PKG_VERSION").to_string(),
     };
@@ -56,31 +65,35 @@ pub fn init() {
     sparkle.set_should_relaunch_application(true);
     sparkle.set_event_callback(|event| match event {
         Event::DidNotFindUpdate => {
-            eprintln!("updater: no update available");
+            log!("no update available");
         }
         Event::DidFindValidUpdate { item } => {
             let version = item.version();
-            eprintln!("updater: update available: {version}");
+            log!("update available: {version}");
             if let Ok(mut found) = FOUND_VERSION.lock() {
                 *found = Some(version);
             }
         }
         Event::DidAbortWithError { error } => {
-            eprintln!("updater: error: {}", error.message());
+            if error.code() != SU_NO_UPDATE_ERROR {
+                log!("error: {}", error.message());
+            }
         }
-        Event::DidFinishUpdateCycle { error, .. } => {
+        Event::DidFinishUpdateCycle { kind, error } => {
             let found = FOUND_VERSION.lock().ok().and_then(|mut found| found.take());
-            let was_ui_check = UI_CHECK_ACTIVE.swap(false, Ordering::SeqCst);
-            if let Some(error) = error {
-                eprintln!(
-                    "updater: update cycle finished with error: {}",
+            if let Some(error) = error.filter(|error| error.code() != SU_NO_UPDATE_ERROR) {
+                log!(
+                    "{kind:?} update cycle finished with error: {}",
                     error.message()
                 );
                 return;
             }
-            // Only *background* discoveries queue the open-window prompt;
-            // UI-driven checks already showed Sparkle's dialog.
-            if was_ui_check {
+            log!("{kind:?} update cycle finished (found: {found:?})");
+            // Sparkle reports which check the cycle belonged to, so the two
+            // kinds cannot be confused even when they overlap. Only background
+            // discoveries queue the open-window prompt; user-driven checks
+            // already showed Sparkle's dialog.
+            if kind != SPU_UPDATE_CHECK_IN_BACKGROUND.into() {
                 return;
             }
             let Some(version) = found else {
@@ -90,13 +103,14 @@ pub fn init() {
                 .lock()
                 .is_ok_and(|v| v.as_deref() == Some(version.as_str()));
             if !already_prompted {
+                log!("queueing a prompt for {version} until the window opens");
                 if let Ok(mut pending) = PENDING_UPDATE_PROMPT.lock() {
                     *pending = Some(version);
                 }
             }
         }
         Event::UserDidCancelDownload => {
-            eprintln!("updater: user cancelled download");
+            log!("user cancelled download");
         }
         _ => {}
     });
@@ -104,13 +118,11 @@ pub fn init() {
     let _ = SPARKLE.set(sparkle);
 }
 
-/// Refreshes proxy detection and picks a working feed off the main thread,
-/// then runs `f` with the updater on the Slint event loop (Sparkle requires
-/// the main thread).
+/// Picks a working feed off the main thread, then runs `f` with the updater on
+/// the Slint event loop (Sparkle requires the main thread).
 #[cfg(target_os = "macos")]
 fn with_sparkle_on_main(f: impl FnOnce(&Sparkle) + Send + 'static) {
     std::thread::spawn(move || {
-        network::prepare_network_for_sparkle();
         // Re-decided before every check: the user may connect or drop a VPN
         // between checks, which flips which feed Cloudflare will serve.
         let feed_override = network::resolve_feed_url();
@@ -149,25 +161,45 @@ pub fn prompt_pending_update() {
         let Some(sparkle) = SPARKLE.get() else {
             return;
         };
-        // A session still in flight (e.g. auto-download) would abort a new
-        // UI check; keep the prompt queued for the next window open instead.
-        if sparkle.session_in_progress().unwrap_or(false) {
-            if let Ok(mut pending) = PENDING_UPDATE_PROMPT.lock() {
-                *pending = Some(version);
-            }
+        // Sparkle's own contract for "will `check_for_updates` do anything":
+        // it is false while the feed or an update is downloading in the
+        // background, and such a call is dropped without any UI.
+        if !can_check_for_updates(sparkle) {
+            log!("cannot offer {version} yet, Sparkle is busy; keeping it queued");
+            requeue_prompt(version);
             return;
         }
-        if let Ok(mut prompted) = PROMPTED_VERSION.lock() {
-            *prompted = Some(version.clone());
-        }
-        eprintln!("updater: offering downloaded update {version} to the user");
-        UI_CHECK_ACTIVE.store(true, Ordering::SeqCst);
+        log!("offering downloaded update {version} to the user");
         crate::tray::macos::activate_app();
-        let _ = sparkle.check_for_updates();
+        if sparkle.check_for_updates().is_err() {
+            log!("failed to open the update dialog for {version}; keeping it queued");
+            requeue_prompt(version);
+            return;
+        }
+        // Recorded only once Sparkle actually has the dialog: marking it any
+        // earlier would retire the version for the rest of the session even
+        // when the user never saw anything.
+        if let Ok(mut prompted) = PROMPTED_VERSION.lock() {
+            *prompted = Some(version);
+        }
     }
 
     #[cfg(not(target_os = "macos"))]
     let _ = version;
+}
+
+#[cfg(target_os = "macos")]
+fn requeue_prompt(version: String) {
+    if let Ok(mut pending) = PENDING_UPDATE_PROMPT.lock() {
+        *pending = Some(version);
+    }
+}
+
+/// Whether Sparkle will act on `check_for_updates`. Treats an unavailable
+/// answer as "no" so a dropped check is never mistaken for a shown dialog.
+#[cfg(target_os = "macos")]
+fn can_check_for_updates(sparkle: &Sparkle) -> bool {
+    sparkle.can_check_for_updates().unwrap_or(false)
 }
 
 /// Checks for updates in the background after startup.
@@ -177,6 +209,7 @@ pub fn check_in_background() {
     }
     #[cfg(target_os = "macos")]
     with_sparkle_on_main(|sparkle| {
+        log!("starting a background check");
         let _ = sparkle.check_for_updates_in_background();
     });
 }
@@ -185,16 +218,42 @@ pub fn check_in_background() {
 /// own progress window and handles "up to date" / update found (including
 /// already-downloaded updates) / errors.
 pub fn check_for_updates() {
-    if SPARKLE.get().is_none() {
-        eprintln!("updater: disabled (not running inside a macOS app bundle)");
-        return;
-    }
     #[cfg(target_os = "macos")]
     {
-        UI_CHECK_ACTIVE.store(true, Ordering::SeqCst);
+        let Some(sparkle) = SPARKLE.get() else {
+            log!("disabled (not running inside a macOS app bundle)");
+            crate::tray::macos::show_info_alert(
+                "无法检查更新",
+                "更新组件没有初始化，请从 GitHub 重新下载并安装最新版本。",
+            );
+            return;
+        };
+        if !can_check_for_updates(sparkle) {
+            log!("user-initiated check ignored: Sparkle is downloading in the background");
+            report_busy();
+            return;
+        }
+        log!("user-initiated check requested");
         crate::tray::macos::activate_app();
         with_sparkle_on_main(|sparkle| {
+            // Re-checked after the feed probing above: a scheduled check can
+            // claim Sparkle while the probes are in flight.
+            if !can_check_for_updates(sparkle) {
+                log!("user-initiated check dropped: Sparkle became busy while probing the feed");
+                report_busy();
+                return;
+            }
             let _ = sparkle.check_for_updates();
         });
     }
+}
+
+/// Sparkle refuses user-initiated checks while it downloads in the background
+/// and shows nothing at all, so the click needs an answer from us.
+#[cfg(target_os = "macos")]
+fn report_busy() {
+    crate::tray::macos::show_info_alert(
+        "正在后台下载更新",
+        "新版本已经在下载中，完成后会提示你安装。",
+    );
 }
