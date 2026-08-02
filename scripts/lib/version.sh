@@ -87,7 +87,7 @@ r2_delete() {
     AWS_DEFAULT_REGION="auto" \
     aws s3 rm "s3://$(r2_get bucket)/${key}" \
         --endpoint-url "https://$(r2_get account_id).r2.cloudflarestorage.com" \
-        --no-progress
+        --only-show-errors
 }
 
 # Keep only the newest $keep_count semver release artifacts under releases/.
