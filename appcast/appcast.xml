@@ -2,14 +2,14 @@
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
     <channel>
         <title>小小万年历</title>
-        <link>https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/releases/tag/v0.3.11</link>
+        <link>https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/releases/tag/v0.3.12</link>
         <description>Most recent updates to 小小万年历</description>
         <language>zh-cn</language>
         <item>
-            <title>Version 0.3.11</title>
-            <link>https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/releases/tag/v0.3.11</link>
-            <sparkle:version>279</sparkle:version>
-            <sparkle:shortVersionString>0.3.11</sparkle:shortVersionString>
+            <title>Version 0.3.12</title>
+            <link>https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/releases/tag/v0.3.12</link>
+            <sparkle:version>285</sparkle:version>
+            <sparkle:shortVersionString>0.3.12</sparkle:shortVersionString>
             <description><![CDATA[<!DOCTYPE html><html><head><meta charset="utf-8"><style>
 body {
     font-family: -apple-system, "PingFang SC", sans-serif;
@@ -40,34 +40,28 @@ hr { border: none; border-top: 1px solid rgba(61, 46, 31, 0.15); margin: 14px 0;
     hr { border-top-color: rgba(232, 226, 216, 0.2); }
 }
 </style></head><body>
-<h2>✨ 小小万年历 0.3.11</h2>
-<p>修复「检查更新」有时点了没反应的问题，并大幅缩短等待时间。</p>
+<h2>✨ 小小万年历 0.3.12</h2>
+<p>菜单栏上的天气预警红点，看过就消失，不再一直挂着。</p>
 <hr>
-<h3>🔄 更新检查</h3>
+<h3>🔴 预警红点</h3>
 <ul>
-<li>修复<strong>点击「检查更新」毫无反应</strong>：后台正在静默下载新版本时，系统会拒绝新的检查且不给任何提示。现在这种情况会明确告诉你「正在后台下载更新」</li>
-<li>修复由此引发的<strong>后续更新提示失效</strong>：被吞掉的那次点击会污染内部状态，导致这一次运行期间打开日历窗口时不再提示新版本</li>
-<li>修复更新弹窗未能真正弹出时，该版本被误标记为「已提示」而整个运行期间不再出现</li>
-<li>点击到出现进度窗口的最长等待从约 <strong>29 秒缩短到约 10 秒</strong>：两个更新源改为并行探测，并移除了一段从未生效的本地代理探测</li>
-</ul>
-<hr>
-<h3>🩺 问题排查</h3>
-<ul>
-<li>更新相关的事件现在会记录到 <code>~/Library/Logs/小小万年历/updater.log</code>，从访达启动时也能查看，方便远程排查升级问题</li>
+<li><strong>看过即消失</strong>：展开预警详情后（点击日历里的预警条，或点击系统通知），菜单栏图标右上角的红点会立刻清除</li>
+<li><strong>新预警照常提醒</strong>：只有已读的那几条预警会被记住；之后来了新的预警，红点会重新亮起——即使新预警的级别比看过的更低</li>
+<li>已读状态会随预警过期自动清理，重启应用后依然有效</li>
 </ul>
 <hr>
 <h3>📦 安装与升级</h3>
 <ul>
-<li><strong>0.3.x 用户</strong>：菜单栏 → 检查更新，或下载 <strong>xiaoxiao-wannianli-0.3.11.dmg</strong></li>
+<li><strong>0.3.x 用户</strong>：菜单栏 → 检查更新，或下载 <strong>xiaoxiao-wannianli-0.3.12.dmg</strong></li>
 </ul>
 <hr>
-<p><strong>完整变更</strong>: <a href="https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/compare/v0.3.10...v0.3.11">https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/compare/v0.3.10...v0.3.11</a></p>
+<p><strong>完整变更</strong>: <a href="https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/compare/v0.3.11...v0.3.12">https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/compare/v0.3.11...v0.3.12</a></p>
 </body></html>]]></description>
-            <pubDate>Sun, 02 Aug 2026 05:27:25 +0000</pubDate>
+            <pubDate>Mon, 03 Aug 2026 02:35:11 +0000</pubDate>
             <enclosure
-                url="https://tclc-updates.cjhuaxin.cc/releases/xiaoxiao-wannianli-0.3.11.zip"
-                sparkle:edSignature="heL9JX3re+OkCTvPe4LvQVkD2qqEJV0ksL/RC5sFYEk5fbn2D9+f5GPYI0DP5br3AbwEankskp9fbaGxsryBAQ=="
-                length="11748280"
+                url="https://tclc-updates.cjhuaxin.cc/releases/xiaoxiao-wannianli-0.3.12.zip"
+                sparkle:edSignature="j/EdmOav4VmgZr7c4lfMR78dcaUsWkGs2+1T+CmXnadcb8lGal3AYwEQ+EpsJX80s7PRaDtV1MWimuSOlYjzDg=="
+                length="11752177"
                 type="application/octet-stream" />
         </item>
     </channel>
