@@ -395,6 +395,7 @@ impl App {
                 if let Some(main) = main_weak.upgrade() {
                     main.set_warning_detail_open(true);
                 }
+                with_app(|app| app.acknowledge_warnings());
             });
         }
     }
@@ -691,6 +692,7 @@ impl App {
                 #[cfg(target_os = "macos")]
                 crate::tray::macos::raise_slint_window(main.window());
             }
+            self.acknowledge_warnings();
             return;
         }
         if let Some(main) = self.main_handle() {
@@ -698,6 +700,24 @@ impl App {
             #[cfg(target_os = "macos")]
             crate::tray::macos::raise_slint_window(main.window());
         }
+        self.acknowledge_warnings();
+    }
+
+    /// Records the currently shown warnings as read and drops the tray dot
+    /// until an unseen alert arrives.
+    fn acknowledge_warnings(&self) {
+        if !insights::acknowledge_current_warnings() {
+            return;
+        }
+        let settings = self.state.settings.borrow();
+        let show = settings.show_weather && settings.show_weather_warning;
+        drop(settings);
+        let tray_level = if show {
+            insights::highest_alert_level().and_then(insight_level_to_tray)
+        } else {
+            None
+        };
+        crate::tray::icon::set_alert_level(tray_level);
     }
 
     /// Installs the winit focus-lost hook that auto-destroys the main window

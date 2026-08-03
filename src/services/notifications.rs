@@ -49,7 +49,7 @@ fn prune_expired(state: &mut WarningNotifyState) {
     });
 }
 
-fn parse_expire(s: &str) -> Option<NaiveDateTime> {
+pub(crate) fn parse_expire(s: &str) -> Option<NaiveDateTime> {
     // "2026-07-27T10:43+08:00" or "2026-07-27T10:43:00+08:00"
     let trimmed = s.get(..16)?; // YYYY-MM-DDTHH:MM
     NaiveDateTime::parse_from_str(&format!("{trimmed}:00"), "%Y-%m-%dT%H:%M:%S").ok()

@@ -1,5 +1,6 @@
 //! Extensible "insight strip" data: weather alerts today, AQI / sun / 宜忌 later.
 
+mod ack;
 mod warning;
 
 use std::sync::{Arc, Mutex};
@@ -136,6 +137,12 @@ pub fn warning_insights() -> Vec<Insight> {
         .collect();
     warnings.sort_by(|a, b| b.level.cmp(&a.level));
     warnings
+}
+
+/// Marks the currently shown warnings as read; the tray dot stays clear until
+/// an alert we have not seen yet arrives. Returns true when state changed.
+pub fn acknowledge_current_warnings() -> bool {
+    ack::acknowledge(&warning_insights())
 }
 
 /// Keep in sync with `Theme.warning-*` in `theme.slint`.

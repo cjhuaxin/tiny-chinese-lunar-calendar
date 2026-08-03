@@ -314,8 +314,14 @@ pub fn ensure_warnings(lat: f64, lon: f64, on_refreshed: impl Fn() + Send + 'sta
     });
 }
 
+/// Highest level among warnings the user has not read yet — drives the tray
+/// dot, which clears once the detail sheet has been opened.
 pub fn highest_alert_level() -> Option<InsightLevel> {
-    super::warning_insights().into_iter().map(|i| i.level).max()
+    super::warning_insights()
+        .into_iter()
+        .filter(|i| !super::ack::is_acknowledged(&i.dedup_id))
+        .map(|i| i.level)
+        .max()
 }
 
 #[cfg(test)]
