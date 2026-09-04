@@ -12,6 +12,7 @@ const PAPER_BORDER: Rgba<u8> = Rgba([0xe8, 0xdf, 0xd0, 0xff]);
 const INK: Rgba<u8> = Rgba([0x3d, 0x2e, 0x1f, 0xff]);
 const CINNABAR: Rgba<u8> = Rgba([0xc4, 0x5c, 0x3e, 0xff]);
 const WEEKEND: Rgba<u8> = Rgba([0xd4, 0x68, 0x4a, 0xff]);
+const SAGE: Rgba<u8> = Rgba([0x5a, 0x7a, 0x5a, 0xff]);
 const SHADOW: Rgba<u8> = Rgba([0x3d, 0x2e, 0x1f, 0x2e]);
 
 /// Menu-bar badge color for an active weather alert.
@@ -47,9 +48,8 @@ const CONTENT_PADDING_TOP: f32 = 1.0;
 const DAY_BOTTOM_INSET: f32 = 1.0;
 const WEEKDAY_FAUX_BOLD_OFFSET: f32 = 0.7;
 
-static FONT: Lazy<FontRef<'static>> = Lazy::new(|| {
-    fontload::load_tray_font().expect("failed to load embedded font for tray icon")
-});
+static FONT: Lazy<FontRef<'static>> =
+    Lazy::new(|| fontload::load_tray_font().expect("failed to load embedded font for tray icon"));
 
 fn card_rect() -> (f32, f32, f32, f32) {
     let x = CARD_INSET_X;
@@ -98,7 +98,15 @@ fn inside_rounded_rect(px: f32, py: f32, x: f32, y: f32, w: f32, h: f32, r: f32)
 
 fn on_rounded_rect_border(px: f32, py: f32, x: f32, y: f32, w: f32, h: f32, r: f32) -> bool {
     inside_rounded_rect(px, py, x, y, w, h, r)
-        && !inside_rounded_rect(px, py, x + 1.0, y + 1.0, w - 2.0, h - 2.0, (r - 1.0).max(0.0))
+        && !inside_rounded_rect(
+            px,
+            py,
+            x + 1.0,
+            y + 1.0,
+            w - 2.0,
+            h - 2.0,
+            (r - 1.0).max(0.0),
+        )
 }
 
 fn blend_pixel(dst: &mut Rgba<u8>, src: Rgba<u8>, alpha: f32) {
@@ -133,7 +141,15 @@ fn fill_rounded_rect(img: &mut RgbaImage, x: f32, y: f32, w: f32, h: f32, r: f32
     }
 }
 
-fn stroke_rounded_rect(img: &mut RgbaImage, x: f32, y: f32, w: f32, h: f32, r: f32, color: Rgba<u8>) {
+fn stroke_rounded_rect(
+    img: &mut RgbaImage,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    r: f32,
+    color: Rgba<u8>,
+) {
     let max_x = (x + w).ceil() as i32;
     let max_y = (y + h).ceil() as i32;
     let min_x = x.floor() as i32;
@@ -265,14 +281,60 @@ fn fill_circle(img: &mut RgbaImage, cx: f32, cy: f32, r: f32, color: Rgba<u8>) {
     }
 }
 
-fn draw_alert_dot(img: &mut RgbaImage, alert: AlertLevel) {
-    // Top-right of the card, with a paper ring so the badge stays readable
-    // against both light and dark menu bars.
-    let (x, y, w, _h) = card_rect();
-    let cx = x + w - 6.0;
-    let cy = y + 6.0;
+fn draw_alert_dot(img: &mut RgbaImage, cx: f32, cy: f32, alert: AlertLevel) {
+    // Paper ring so the badge stays readable against light and dark menu bars.
     fill_circle(img, cx, cy, 5.0, PAPER_BG);
     fill_circle(img, cx, cy, 3.5, alert.color());
+}
+
+fn point_in_triangle(px: f32, py: f32, a: (f32, f32), b: (f32, f32), c: (f32, f32)) -> bool {
+    let sign = |p1: (f32, f32), p2: (f32, f32), p3: (f32, f32)| {
+        (p1.0 - p3.0) * (p2.1 - p3.1) - (p2.0 - p3.0) * (p1.1 - p3.1)
+    };
+    let d1 = sign((px, py), a, b);
+    let d2 = sign((px, py), b, c);
+    let d3 = sign((px, py), c, a);
+    let has_neg = d1 < 0.0 || d2 < 0.0 || d3 < 0.0;
+    let has_pos = d1 > 0.0 || d2 > 0.0 || d3 > 0.0;
+    !(has_neg && has_pos)
+}
+
+fn fill_triangle(
+    img: &mut RgbaImage,
+    a: (f32, f32),
+    b: (f32, f32),
+    c: (f32, f32),
+    color: Rgba<u8>,
+) {
+    let min_x = a.0.min(b.0).min(c.0).floor() as i32;
+    let max_x = a.0.max(b.0).max(c.0).ceil() as i32;
+    let min_y = a.1.min(b.1).min(c.1).floor() as i32;
+    let max_y = a.1.max(b.1).max(c.1).ceil() as i32;
+    for py in min_y..=max_y {
+        for px in min_x..=max_x {
+            if px < 0 || py < 0 || px >= ICON_WIDTH as i32 || py >= ICON_HEIGHT as i32 {
+                continue;
+            }
+            if point_in_triangle(px as f32 + 0.5, py as f32 + 0.5, a, b, c) {
+                let pixel = img.get_pixel_mut(px as u32, py as u32);
+                blend_pixel(pixel, color, color[3] as f32 / 255.0);
+            }
+        }
+    }
+}
+
+/// Sage disc with a white up-arrow: "a newer version is waiting", distinct
+/// from the weather-alert colour dots.
+fn draw_update_arrow(img: &mut RgbaImage, cx: f32, cy: f32) {
+    fill_circle(img, cx, cy, 6.0, PAPER_BG);
+    fill_circle(img, cx, cy, 4.5, SAGE);
+    fill_triangle(
+        img,
+        (cx, cy - 2.6),
+        (cx - 2.5, cy + 1.5),
+        (cx + 2.5, cy + 1.5),
+        PAPER_BG,
+    );
 }
 
 pub fn render_tray_icon(
@@ -280,19 +342,12 @@ pub fn render_tray_icon(
     day: u32,
     is_weekend: bool,
     alert: Option<AlertLevel>,
+    update_available: bool,
 ) -> (Vec<u8>, u32, u32) {
     let mut img = RgbaImage::from_pixel(ICON_WIDTH, ICON_HEIGHT, Rgba([0, 0, 0, 0]));
     let (x, y, w, h) = card_rect();
 
-    fill_rounded_rect(
-        &mut img,
-        x,
-        y + SHADOW_OFFSET_Y,
-        w,
-        h,
-        CARD_RADIUS,
-        SHADOW,
-    );
+    fill_rounded_rect(&mut img, x, y + SHADOW_OFFSET_Y, w, h, CARD_RADIUS, SHADOW);
     fill_rounded_rect(&mut img, x, y, w, h, CARD_RADIUS, PAPER_BG);
     stroke_rounded_rect(&mut img, x, y, w, h, CARD_RADIUS, PAPER_BORDER);
 
@@ -317,8 +372,17 @@ pub fn render_tray_icon(
         None,
     );
 
-    if let Some(alert) = alert {
-        draw_alert_dot(&mut img, alert);
+    let (x, y, w, _h) = card_rect();
+    let top_right = (x + w - 6.0, y + 6.0);
+    let top_left = (x + 6.0, y + 6.0);
+    match (update_available, alert) {
+        (true, Some(alert)) => {
+            draw_update_arrow(&mut img, top_left.0, top_left.1);
+            draw_alert_dot(&mut img, top_right.0, top_right.1, alert);
+        }
+        (true, None) => draw_update_arrow(&mut img, top_right.0, top_right.1),
+        (false, Some(alert)) => draw_alert_dot(&mut img, top_right.0, top_right.1, alert),
+        (false, None) => {}
     }
 
     (img.into_raw(), ICON_WIDTH, ICON_HEIGHT)
@@ -330,7 +394,7 @@ mod tests {
 
     #[test]
     fn render_produces_expected_buffer_size() {
-        let (rgba, width, height) = render_tray_icon('日', 21, true, None);
+        let (rgba, width, height) = render_tray_icon('日', 21, true, None, false);
         assert_eq!(width, ICON_WIDTH);
         assert_eq!(height, ICON_HEIGHT);
         assert_eq!(rgba.len(), (ICON_WIDTH * ICON_HEIGHT * 4) as usize);
@@ -339,7 +403,20 @@ mod tests {
 
     #[test]
     fn render_with_alert_dot() {
-        let (rgba, _, _) = render_tray_icon('一', 26, false, Some(AlertLevel::Severe));
+        let (rgba, _, _) = render_tray_icon('一', 26, false, Some(AlertLevel::Severe), false);
+        assert_eq!(rgba.len(), (ICON_WIDTH * ICON_HEIGHT * 4) as usize);
+    }
+
+    #[test]
+    fn render_with_update_arrow() {
+        let (rgba, _, _) = render_tray_icon('一', 26, false, None, true);
+        assert_eq!(rgba.len(), (ICON_WIDTH * ICON_HEIGHT * 4) as usize);
+        assert!(rgba.iter().any(|v| *v > 0));
+    }
+
+    #[test]
+    fn render_with_update_and_alert() {
+        let (rgba, _, _) = render_tray_icon('一', 26, false, Some(AlertLevel::Minor), true);
         assert_eq!(rgba.len(), (ICON_WIDTH * ICON_HEIGHT * 4) as usize);
     }
 }

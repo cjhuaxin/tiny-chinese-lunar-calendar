@@ -88,6 +88,9 @@ mod tests {
     #[test]
     fn logs_land_under_the_user_logs_directory() {
         let path = log_path().expect("log path");
-        assert!(path.ends_with("Library/Logs/小小万年历/updater.log"), "got {path:?}");
+        assert!(
+            path.ends_with("Library/Logs/小小万年历/updater.log"),
+            "got {path:?}"
+        );
     }
 }

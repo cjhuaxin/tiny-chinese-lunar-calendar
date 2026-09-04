@@ -55,10 +55,7 @@ pub fn humanize(selected: NaiveDate, reference: NaiveDate) -> String {
         if days == 0 {
             return format!("{years}年 {months}月{}", append_suffix(is_in_past));
         }
-        return format!(
-            "{years}年 {months}月 {days}天{}",
-            append_suffix(is_in_past)
-        );
+        return format!("{years}年 {months}月 {days}天{}", append_suffix(is_in_past));
     }
 
     if days == 0 {
@@ -73,7 +70,10 @@ pub fn relative_date_texts(selected: NaiveDate, reference: NaiveDate) -> (String
     let total_days = (selected - reference).num_days().abs();
 
     if total_days >= 30 {
-        let simple = format!("{total_days}天 {}", if selected < reference { "前" } else { "后" });
+        let simple = format!(
+            "{total_days}天 {}",
+            if selected < reference { "前" } else { "后" }
+        );
         (primary, Some(simple))
     } else {
         (primary, None)
@@ -81,7 +81,11 @@ pub fn relative_date_texts(selected: NaiveDate, reference: NaiveDate) -> (String
 }
 
 fn append_suffix(is_in_past: bool) -> &'static str {
-    if is_in_past { " 前" } else { " 后" }
+    if is_in_past {
+        " 前"
+    } else {
+        " 后"
+    }
 }
 
 fn days_in_month(year: i32, month: u32) -> u32 {

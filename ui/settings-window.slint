@@ -114,7 +114,7 @@ export component SettingsWindow inherits Window {
     title: "偏好设置";
     no-frame: true;
     always-on-top: true;
-    background: Theme.paper-bg;
+    background: transparent;
     default-font-family: Theme.font-family;
 
     in-out property <bool> draft-sunday-first;
@@ -132,7 +132,14 @@ export component SettingsWindow inherits Window {
     callback cancel();
     callback start-drag();
 
-    VerticalLayout {
+    Rectangle {
+        border-radius: Theme.radius-shell;
+        background: Theme.paper-bg;
+        border-width: 1px;
+        border-color: Theme.paper-border;
+        clip: true;
+
+        VerticalLayout {
         // header
         header := Rectangle {
             TouchArea {
@@ -386,6 +393,7 @@ export component SettingsWindow inherits Window {
                     clicked => { root.save(); }
                 }
             }
+        }
         }
     }
 }

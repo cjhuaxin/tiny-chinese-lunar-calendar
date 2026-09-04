@@ -33,6 +33,7 @@ objc2-app-kit = "0.3"
 objc2-core-location = { version = "0.3", features = ["CLLocation", "CLLocationManager", "CLLocationManagerDelegate", "CLError", "block2"] }
 objc2-user-notifications = { version = "0.3", features = ["UNUserNotificationCenter", "UNNotification", "UNNotificationContent", "UNNotificationRequest", "UNNotificationResponse", "UNNotificationSettings", "UNNotificationTrigger", "UNNotificationSound", "block2"] }
 raw-window-handle = "0.6"
+smappservice-rs = "0.1"
 sparklers = "0.1"
 
 [build-dependencies]

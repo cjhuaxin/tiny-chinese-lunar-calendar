@@ -5,8 +5,8 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use objc2_foundation::{
-    NSBundle, NSData, NSError, NSHTTPURLResponse, NSString, NSURL, NSURLRequest,
-    NSURLRequestCachePolicy, NSURLResponse, NSURLSession,
+    NSBundle, NSData, NSError, NSHTTPURLResponse, NSString, NSURLRequest, NSURLRequestCachePolicy,
+    NSURLResponse, NSURLSession, NSURL,
 };
 
 use super::logging::log;
@@ -196,5 +196,4 @@ mod tests {
         body.extend_from_slice(b"<rss>");
         assert!(!looks_like_appcast(&body));
     }
-
 }

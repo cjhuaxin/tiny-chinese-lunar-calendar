@@ -7,7 +7,7 @@ mod macos {
     use objc2::runtime::{NSObjectProtocol, ProtocolObject};
     use objc2::{define_class, msg_send, ClassType, MainThreadMarker};
     use objc2_core_location::{
-        kCLLocationAccuracyKilometer, CLError, CLAuthorizationStatus, CLLocation,
+        kCLLocationAccuracyKilometer, CLAuthorizationStatus, CLError, CLLocation,
         CLLocationManager, CLLocationManagerDelegate,
     };
     use objc2_foundation::{NSArray, NSError};
@@ -133,11 +133,7 @@ mod macos {
             }
 
             #[unsafe(method(locationManager:didFailWithError:))]
-            fn location_manager_did_fail(
-                &self,
-                manager: &CLLocationManager,
-                error: &NSError,
-            ) {
+            fn location_manager_did_fail(&self, manager: &CLLocationManager, error: &NSError) {
                 let attempts = LOCATION_ATTEMPTS.with(|cell| *cell.borrow());
                 if is_retryable_error(error) && attempts < MAX_LOCATION_ATTEMPTS {
                     LOCATION_ATTEMPTS.with(|cell| *cell.borrow_mut() = attempts + 1);

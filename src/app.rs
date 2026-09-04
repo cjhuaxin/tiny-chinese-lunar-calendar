@@ -19,13 +19,23 @@ use crate::services::{holiday, location, notifications, weather};
 use crate::settings::{load_settings, save_settings, sync_launch_at_login};
 use crate::textfit;
 use crate::tray::render::AlertLevel;
-use crate::{DayCellData, MainWindow, SettingsWindow, WeekdayLabel};
+use crate::{AboutWindow, DayCellData, MainWindow, SettingsWindow, StatusAlertWindow, WeekdayLabel};
 
 use slint::winit_030::{winit, WinitWindowAccessor};
 use winit::dpi::LogicalPosition;
 
 const MONTH_NAMES_ZH: [&str; 12] = [
-    "一月", "二月", "三月", "四月", "五月", "六月", "七月", "八月", "九月", "十月", "十一月",
+    "一月",
+    "二月",
+    "三月",
+    "四月",
+    "五月",
+    "六月",
+    "七月",
+    "八月",
+    "九月",
+    "十月",
+    "十一月",
     "十二月",
 ];
 
@@ -41,6 +51,8 @@ pub struct App {
     /// the process returns to its tray-only footprint.
     pub main: RefCell<Option<MainWindow>>,
     pub settings_win: SettingsWindow,
+    pub about_win: AboutWindow,
+    pub status_win: StatusAlertWindow,
     pub state: Rc<State>,
     _cycle_timer: slint::Timer,
     _refresh_timer: slint::Timer,
@@ -120,6 +132,11 @@ pub fn with_app(f: impl FnOnce(&Rc<App>)) {
     });
 }
 
+/// Shows the compact status dialog. Safe to call from the UI thread.
+pub fn show_status_alert(heading: &str, detail: &str) {
+    with_app(|app| app.show_status_alert(heading, detail));
+}
+
 fn today() -> NaiveDate {
     Local::now().date_naive()
 }
@@ -148,6 +165,9 @@ impl State {
 impl App {
     pub fn new() -> Result<Rc<Self>, slint::PlatformError> {
         let settings_win = SettingsWindow::new()?;
+        let about_win = AboutWindow::new()?;
+        about_win.set_app_version(env!("CARGO_PKG_VERSION").into());
+        let status_win = StatusAlertWindow::new()?;
 
         let now = today();
         let now_instant = std::time::Instant::now();
@@ -177,7 +197,9 @@ impl App {
         {
             let state = state.clone();
             cycle_timer.start(slint::TimerMode::Repeated, CYCLE_INTERVAL, move || {
-                state.cycle_index.set(state.cycle_index.get().wrapping_add(1));
+                state
+                    .cycle_index
+                    .set(state.cycle_index.get().wrapping_add(1));
                 let state = state.clone();
                 with_app(move |app| {
                     if let Some(main) = app.main_handle() {
@@ -212,21 +234,17 @@ impl App {
         let auto_return_timer = slint::Timer::default();
         {
             let state = state.clone();
-            auto_return_timer.start(
-                slint::TimerMode::Repeated,
-                AUTO_RETURN_POLL,
-                move || {
-                    let state = state.clone();
-                    with_app(move |app| {
-                        let Some(main) = app.main_handle() else {
-                            return;
-                        };
-                        if main.window().is_visible() {
-                            maybe_auto_return_idle(&main, &state);
-                        }
-                    });
-                },
-            );
+            auto_return_timer.start(slint::TimerMode::Repeated, AUTO_RETURN_POLL, move || {
+                let state = state.clone();
+                with_app(move |app| {
+                    let Some(main) = app.main_handle() else {
+                        return;
+                    };
+                    if main.window().is_visible() {
+                        maybe_auto_return_idle(&main, &state);
+                    }
+                });
+            });
         }
 
         let insight_timer = slint::Timer::default();
@@ -247,6 +265,8 @@ impl App {
         let app = Rc::new(Self {
             main: RefCell::new(None),
             settings_win,
+            about_win,
+            status_win,
             state,
             _cycle_timer: cycle_timer,
             _refresh_timer: refresh_timer,
@@ -255,6 +275,8 @@ impl App {
         });
 
         app.wire_settings_callbacks();
+        app.wire_about_callbacks();
+        app.wire_status_callbacks();
 
         // Notification taps open the calendar and expand the warning detail.
         notifications::install_click_handler(|| {
@@ -305,7 +327,6 @@ impl App {
     }
 
     fn wire_main_callbacks(self: &Rc<Self>, main: &MainWindow) {
-
         {
             let main_weak = main.as_weak();
             let state = self.state.clone();
@@ -330,9 +351,8 @@ impl App {
                 let Some(main) = main_weak.upgrade() else {
                     return;
                 };
-                let total = state.focused_year.get() * 12
-                    + (state.focused_month.get() as i32 - 1)
-                    + delta;
+                let total =
+                    state.focused_year.get() * 12 + (state.focused_month.get() as i32 - 1) + delta;
                 let year = total.div_euclid(12);
                 let month = (total.rem_euclid(12) + 1) as u32;
                 state.touch_navigation();
@@ -432,8 +452,10 @@ impl App {
                 if let Err(err) = save_settings(&new_settings) {
                     eprintln!("failed to save settings: {err}");
                 }
-                if let Err(err) = sync_launch_at_login(new_settings.launch_at_login) {
+                if let Err(err) = sync_launch_at_login(new_settings.launch_at_login, true) {
                     eprintln!("failed to sync launch at login: {err}");
+                    #[cfg(target_os = "macos")]
+                    crate::tray::macos::show_info_alert("开机启动", &err);
                 }
                 *state.settings.borrow_mut() = new_settings;
                 let _ = win.window().hide();
@@ -470,16 +492,71 @@ impl App {
         }
     }
 
+    fn wire_about_callbacks(self: &Rc<Self>) {
+        let win = &self.about_win;
+        {
+            let win_weak = win.as_weak();
+            win.on_dismiss(move || {
+                if let Some(win) = win_weak.upgrade() {
+                    let _ = win.window().hide();
+                }
+            });
+        }
+        {
+            let win_weak = win.as_weak();
+            win.on_start_drag(move || {
+                if let Some(win) = win_weak.upgrade() {
+                    win.window().with_winit_window(|w| {
+                        let _ = w.drag_window();
+                    });
+                }
+            });
+        }
+        win.on_open_homepage(|| {
+            #[cfg(target_os = "macos")]
+            crate::tray::macos::open_url(env!("CARGO_PKG_HOMEPAGE"));
+        });
+        {
+            let win_weak = win.as_weak();
+            win.on_install_update(move || {
+                if let Some(win) = win_weak.upgrade() {
+                    let _ = win.window().hide();
+                }
+                #[cfg(target_os = "macos")]
+                crate::updater::check_for_updates();
+            });
+        }
+    }
+
+    fn wire_status_callbacks(self: &Rc<Self>) {
+        let win = &self.status_win;
+        {
+            let win_weak = win.as_weak();
+            win.on_dismiss(move || {
+                if let Some(win) = win_weak.upgrade() {
+                    let _ = win.window().hide();
+                }
+            });
+        }
+        {
+            let win_weak = win.as_weak();
+            win.on_start_drag(move || {
+                if let Some(win) = win_weak.upgrade() {
+                    win.window().with_winit_window(|w| {
+                        let _ = w.drag_window();
+                    });
+                }
+            });
+        }
+    }
+
     /// Toggles the main window like the Tauri tray click handler:
     /// destroy when visible, otherwise create and show below the tray icon.
     pub fn toggle_main_window(self: &Rc<Self>) {
         // Toggling always resets the pin, matching the Tauri behaviour.
         self.state.pinned.set(false);
 
-        if self
-            .main_handle()
-            .is_some_and(|m| m.window().is_visible())
-        {
+        if self.main_handle().is_some_and(|m| m.window().is_visible()) {
             self.drop_main();
             return;
         }
@@ -528,17 +605,6 @@ impl App {
         let _ = main.show();
         self.ensure_weather_for_main(&main);
 
-        // A background check may have found (and pre-downloaded) an update;
-        // offer it now that the user is actively looking at the app. Delayed
-        // so the popover settles first; the Sparkle dialog takes focus, which
-        // auto-closes the unpinned popover - acceptable, the user is being
-        // routed into the update flow.
-        if crate::updater::has_pending_update_prompt() {
-            slint::Timer::single_shot(Duration::from_millis(700), || {
-                crate::updater::prompt_pending_update();
-            });
-        }
-
         // Deferred best-effort focus (the winit window is created a tick
         // after show()); auto-close itself relies on the global click monitor.
         {
@@ -572,12 +638,14 @@ impl App {
     /// anchor, mirroring `show_settings_window` from the Tauri version.
     pub fn show_settings(&self) {
         let settings = self.state.settings.borrow().clone();
-        self.settings_win.set_draft_sunday_first(settings.sunday_first);
+        self.settings_win
+            .set_draft_sunday_first(settings.sunday_first);
         self.settings_win
             .set_draft_show_intl(settings.show_international_festivals);
         self.settings_win
             .set_draft_launch_login(settings.launch_at_login);
-        self.settings_win.set_draft_show_weather(settings.show_weather);
+        self.settings_win
+            .set_draft_show_weather(settings.show_weather);
         self.settings_win
             .set_draft_show_weather_warning(settings.show_weather_warning);
         self.settings_win
@@ -598,6 +666,43 @@ impl App {
         center_settings_on_anchor_screen(&self.settings_win, anchor, 8);
         #[cfg(target_os = "macos")]
         crate::tray::macos::raise_slint_window(self.settings_win.window());
+    }
+
+    /// Opens the about window centered on the monitor containing the tray.
+    pub fn show_about(&self) {
+        self.sync_about_update();
+        let anchor = self.state.tray_anchor.get();
+        let _ = self.about_win.show();
+        center_about_on_anchor_screen(&self.about_win, anchor, 8);
+        #[cfg(target_os = "macos")]
+        crate::tray::macos::raise_slint_window(self.about_win.window());
+    }
+
+    /// Compact centered status dialog (up-to-date / update-check error).
+    pub fn show_status_alert(&self, heading: &str, detail: &str) {
+        self.status_win.set_heading(heading.into());
+        self.status_win.set_detail(detail.into());
+        let anchor = self.state.tray_anchor.get();
+        let _ = self.status_win.show();
+        center_status_on_anchor_screen(&self.status_win, anchor, 8);
+        #[cfg(target_os = "macos")]
+        crate::tray::macos::raise_slint_window(self.status_win.window());
+    }
+
+    /// Shows or hides the about window's install button to match Sparkle.
+    pub fn sync_about_update(&self) {
+        #[cfg(target_os = "macos")]
+        {
+            let version = crate::updater::available_version();
+            self.about_win.set_update_available(version.is_some());
+            self.about_win
+                .set_update_version(version.unwrap_or_default().into());
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            self.about_win.set_update_available(false);
+            self.about_win.set_update_version(Default::default());
+        }
     }
 
     /// Fetches location + weather when the calendar popover opens.
@@ -621,31 +726,23 @@ impl App {
         let main_weak = main.as_weak();
         let show_warning = settings.show_weather_warning;
         let notify = settings.warning_notifications;
-        location::request_coordinates(move |result| {
-            match result {
-                Ok((lat, lon)) => {
-                    fetch_weather_and_insights(lat, lon, main_weak, show_warning, notify);
-                }
-                Err(err) => {
-                    eprintln!("location failed: {err}");
-                    let main_weak = main_weak.clone();
-                    std::thread::spawn(move || {
-                        if let Some((lat, lon)) = weather::resolve_coordinates_fallback() {
-                            fetch_weather_and_insights(
-                                lat,
-                                lon,
-                                main_weak,
-                                show_warning,
-                                notify,
-                            );
-                        } else {
-                            weather::set_unavailable(&err);
-                            let _ = slint::invoke_from_event_loop(move || {
-                                apply_weather_ui(&main_weak);
-                            });
-                        }
-                    });
-                }
+        location::request_coordinates(move |result| match result {
+            Ok((lat, lon)) => {
+                fetch_weather_and_insights(lat, lon, main_weak, show_warning, notify);
+            }
+            Err(err) => {
+                eprintln!("location failed: {err}");
+                let main_weak = main_weak.clone();
+                std::thread::spawn(move || {
+                    if let Some((lat, lon)) = weather::resolve_coordinates_fallback() {
+                        fetch_weather_and_insights(lat, lon, main_weak, show_warning, notify);
+                    } else {
+                        weather::set_unavailable(&err);
+                        let _ = slint::invoke_from_event_loop(move || {
+                            apply_weather_ui(&main_weak);
+                        });
+                    }
+                });
             }
         });
     }
@@ -661,8 +758,8 @@ impl App {
 
         let notify = settings.warning_notifications;
         std::thread::spawn(move || {
-            let Some((lat, lon)) = weather::cached_coordinates()
-                .or_else(weather::resolve_coordinates_fallback)
+            let Some((lat, lon)) =
+                weather::cached_coordinates().or_else(weather::resolve_coordinates_fallback)
             else {
                 return;
             };
@@ -677,9 +774,7 @@ impl App {
     /// Opens (or focuses) the calendar popover and expands the warning detail
     /// sheet — used when the user clicks a system notification.
     pub fn open_from_warning_notification(self: &Rc<Self>) {
-        let visible = self
-            .main_handle()
-            .is_some_and(|m| m.window().is_visible());
+        let visible = self.main_handle().is_some_and(|m| m.window().is_visible());
         if !visible {
             // Prefer a pinned open so the focus-loss auto-hide doesn't race
             // the detail overlay.
@@ -763,9 +858,7 @@ impl App {
                                 }
                                 if off_target {
                                     state.pos_corrections.set(budget - 1);
-                                    w.set_outer_position(LogicalPosition::new(
-                                        target_x, bottom_y,
-                                    ));
+                                    w.set_outer_position(LogicalPosition::new(target_x, bottom_y));
                                 }
                             });
                         }
@@ -811,8 +904,47 @@ fn center_settings_on_anchor_screen(
     anchor: Option<(f64, f64)>,
     retries_left: u32,
 ) {
-    let placed = win
-        .window()
+    let placed = try_center_window(win.window(), anchor);
+    if !placed && retries_left > 0 {
+        let win_weak = win.as_weak();
+        slint::Timer::single_shot(Duration::from_millis(16), move || {
+            if let Some(win) = win_weak.upgrade() {
+                center_settings_on_anchor_screen(&win, anchor, retries_left - 1);
+            }
+        });
+    }
+}
+
+fn center_about_on_anchor_screen(win: &AboutWindow, anchor: Option<(f64, f64)>, retries_left: u32) {
+    let placed = try_center_window(win.window(), anchor);
+    if !placed && retries_left > 0 {
+        let win_weak = win.as_weak();
+        slint::Timer::single_shot(Duration::from_millis(16), move || {
+            if let Some(win) = win_weak.upgrade() {
+                center_about_on_anchor_screen(&win, anchor, retries_left - 1);
+            }
+        });
+    }
+}
+
+fn center_status_on_anchor_screen(
+    win: &StatusAlertWindow,
+    anchor: Option<(f64, f64)>,
+    retries_left: u32,
+) {
+    let placed = try_center_window(win.window(), anchor);
+    if !placed && retries_left > 0 {
+        let win_weak = win.as_weak();
+        slint::Timer::single_shot(Duration::from_millis(16), move || {
+            if let Some(win) = win_weak.upgrade() {
+                center_status_on_anchor_screen(&win, anchor, retries_left - 1);
+            }
+        });
+    }
+}
+
+fn try_center_window(window: &slint::Window, anchor: Option<(f64, f64)>) -> bool {
+    window
         .with_winit_window(|w| {
             let win_scale = w.scale_factor();
             let (win_w, win_h) = (
@@ -820,24 +952,25 @@ fn center_settings_on_anchor_screen(
                 w.outer_size().height as f64 / win_scale,
             );
 
-            // Logical frame of the screen containing the tray anchor.
             #[cfg(target_os = "macos")]
             let frame = anchor.and_then(|(x, y)| crate::tray::macos::screen_frame_at(x, y));
             #[cfg(not(target_os = "macos"))]
             let frame: Option<(f64, f64, f64, f64)> = None;
 
             let frame = frame.or_else(|| {
-                w.current_monitor().or_else(|| w.primary_monitor()).map(|m| {
-                    let scale = m.scale_factor();
-                    let pos = m.position();
-                    let size = m.size();
-                    (
-                        pos.x as f64 / scale,
-                        pos.y as f64 / scale,
-                        size.width as f64 / scale,
-                        size.height as f64 / scale,
-                    )
-                })
+                w.current_monitor()
+                    .or_else(|| w.primary_monitor())
+                    .map(|m| {
+                        let scale = m.scale_factor();
+                        let pos = m.position();
+                        let size = m.size();
+                        (
+                            pos.x as f64 / scale,
+                            pos.y as f64 / scale,
+                            size.width as f64 / scale,
+                            size.height as f64 / scale,
+                        )
+                    })
             });
 
             if let Some((mx, my, mw, mh)) = frame {
@@ -848,16 +981,7 @@ fn center_settings_on_anchor_screen(
             }
             w.focus_window();
         })
-        .is_some();
-
-    if !placed && retries_left > 0 {
-        let win_weak = win.as_weak();
-        slint::Timer::single_shot(Duration::from_millis(16), move || {
-            if let Some(win) = win_weak.upgrade() {
-                center_settings_on_anchor_screen(&win, anchor, retries_left - 1);
-            }
-        });
-    }
+        .is_some()
 }
 
 /// Asks malloc to return freed-but-cached pages to the OS. Called after the
@@ -1186,9 +1310,7 @@ fn refresh_detail(main: &MainWindow, state: &Rc<State>) {
     }
 
     main.set_hero_day(date.day().to_string().into());
-    main.set_hero_weekday(
-        HERO_WEEKDAYS[date.weekday().num_days_from_sunday() as usize].into(),
-    );
+    main.set_hero_weekday(HERO_WEEKDAYS[date.weekday().num_days_from_sunday() as usize].into());
     main.set_lunar_title(detail.lunar_date_title.clone().into());
 
     let mut relative = vec![detail.humanized_date.clone()];

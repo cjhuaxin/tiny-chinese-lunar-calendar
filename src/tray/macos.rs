@@ -1,13 +1,10 @@
 use block2::RcBlock;
-use objc2::rc::Retained;
-use objc2::runtime::AnyObject;
 use objc2::MainThreadMarker;
 use objc2_app_kit::{
-    NSAboutPanelOptionApplicationName, NSAboutPanelOptionApplicationVersion, NSAlert, NSAlertStyle,
-    NSApplication, NSCellImagePosition, NSEvent, NSEventMask, NSMenu, NSScreen, NSView,
-    NSWorkspace, NSWorkspaceDidWakeNotification,
+    NSAlert, NSAlertStyle, NSApplication, NSCellImagePosition, NSEvent, NSEventMask, NSMenu,
+    NSScreen, NSView, NSWorkspace, NSWorkspaceDidWakeNotification,
 };
-use objc2_foundation::{NSDictionary, NSNotification, NSOperationQueue, NSSize, NSString};
+use objc2_foundation::{NSNotification, NSOperationQueue, NSSize, NSString, NSURL};
 use std::mem;
 use std::ptr::NonNull;
 use tray_icon::TrayIcon;
@@ -60,30 +57,26 @@ pub fn show_info_alert(title: &str, body: &str) {
     alert.runModal();
 }
 
-fn about_panel_string(value: &str) -> Retained<AnyObject> {
-    Retained::into_super(Retained::into_super(NSString::from_str(value)))
+/// Centered “you're up to date” dialog, matching Sparkle's copy without its
+/// left-aligned icon + title layout.
+pub fn show_up_to_date_alert(version: &str) {
+    crate::app::show_status_alert(
+        "您使用的就是最新版！",
+        &format!("小小万年历 {version} 是当前的最新版本。"),
+    );
 }
 
-/// Shows the standard macOS About panel with the compile-time app version and
-/// `Credits.html` from the app bundle (clickable GitHub link).
-pub fn show_about_panel() {
-    let Some(mtm) = MainThreadMarker::new() else {
+/// Centered error dialog when the update feed cannot be fetched.
+pub fn show_update_error_alert() {
+    crate::app::show_status_alert("无法检查更新", "请稍后再试");
+}
+
+/// Opens `url` in the user's default browser.
+pub fn open_url(url: &str) {
+    let Some(ns_url) = NSURL::URLWithString(&NSString::from_str(url)) else {
         return;
     };
-    activate_app();
-
-    let keys = [
-        unsafe { NSAboutPanelOptionApplicationName },
-        unsafe { NSAboutPanelOptionApplicationVersion },
-    ];
-    let objects: [Retained<AnyObject>; 2] = [
-        about_panel_string(crate::settings::APP_NAME),
-        about_panel_string(env!("CARGO_PKG_VERSION")),
-    ];
-    let dict = NSDictionary::from_retained_objects(&keys, &objects);
-    unsafe {
-        NSApplication::sharedApplication(mtm).orderFrontStandardAboutPanelWithOptions(&dict);
-    }
+    let _ = NSWorkspace::sharedWorkspace().openURL(&ns_url);
 }
 
 /// Forces tray menu icons into monochrome template rendering, matching the system Quit item.
@@ -219,9 +212,8 @@ pub fn observe_global_clicks(handler: impl Fn() + 'static) {
         handler();
     });
 
-    let mask = NSEventMask::LeftMouseDown
-        | NSEventMask::RightMouseDown
-        | NSEventMask::OtherMouseDown;
+    let mask =
+        NSEventMask::LeftMouseDown | NSEventMask::RightMouseDown | NSEventMask::OtherMouseDown;
 
     let monitor = NSEvent::addGlobalMonitorForEventsMatchingMask_handler(mask, &block);
 

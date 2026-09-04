@@ -5356,6 +5356,7 @@ dependencies = [
  "serde_json",
  "slint",
  "slint-build",
+ "smappservice-rs",
  "sparklers",
  "sparklers-build",
  "tray-icon",

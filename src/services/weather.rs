@@ -443,9 +443,8 @@ pub fn fetch_ip_coordinates() -> Result<(f64, f64), String> {
         Ok(coords) => Ok(coords),
         Err(bdc_err) => {
             eprintln!("BigDataCloud IP geolocation failed: {bdc_err}");
-            fetch_ip_sb_coordinates().map_err(|ip_sb_err| {
-                format!("BigDataCloud: {bdc_err}; ip.sb: {ip_sb_err}")
-            })
+            fetch_ip_sb_coordinates()
+                .map_err(|ip_sb_err| format!("BigDataCloud: {bdc_err}; ip.sb: {ip_sb_err}"))
         }
     }
 }
@@ -620,10 +619,7 @@ fn fetch_weather_now(lat: f64, lon: f64) -> Result<WeatherSnapshot, String> {
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
-    let icon = now
-        .get("icon")
-        .and_then(|v| v.as_str())
-        .unwrap_or("999");
+    let icon = now.get("icon").and_then(|v| v.as_str()).unwrap_or("999");
 
     let city = city_name(lat, lon);
     let (temp_max, temp_min) = ensure_forecast(lat, lon);
@@ -753,22 +749,20 @@ pub fn ensure_weather(lat: f64, lon: f64, on_refreshed: impl Fn() + Send + 'stat
         return;
     }
 
-    std::thread::spawn(move || {
-        match fetch_weather_now(lat, lon) {
-            Ok(snapshot) => {
-                let _ = save_weather_cache(lat, lon, &snapshot);
-                set_memory(snapshot);
+    std::thread::spawn(move || match fetch_weather_now(lat, lon) {
+        Ok(snapshot) => {
+            let _ = save_weather_cache(lat, lon, &snapshot);
+            set_memory(snapshot);
+            on_refreshed();
+        }
+        Err(err) => {
+            eprintln!("QWeather fetch failed: {err}");
+            if let Some(cached) = load_stale_weather_cache(lat, lon) {
+                set_memory(cached);
                 on_refreshed();
-            }
-            Err(err) => {
-                eprintln!("QWeather fetch failed: {err}");
-                if let Some(cached) = load_stale_weather_cache(lat, lon) {
-                    set_memory(cached);
-                    on_refreshed();
-                } else {
-                    set_memory(unavailable_snapshot(&err));
-                    on_refreshed();
-                }
+            } else {
+                set_memory(unavailable_snapshot(&err));
+                on_refreshed();
             }
         }
     });
@@ -898,7 +892,8 @@ mod tests {
 
     #[test]
     fn parse_bigdatacloud_sample() {
-        let body = br#"{"isReachableGlobally":true,"location":{"latitude":22.5455,"longitude":114.0683}}"#;
+        let body =
+            br#"{"isReachableGlobally":true,"location":{"latitude":22.5455,"longitude":114.0683}}"#;
         let (lat, lon) = parse_bigdatacloud_ip_coords(body).unwrap();
         assert!((lat - 22.5455).abs() < 1e-6);
         assert!((lon - 114.0683).abs() < 1e-6);

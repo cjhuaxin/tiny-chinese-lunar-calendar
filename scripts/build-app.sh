@@ -123,7 +123,7 @@ cat > "$APP_DIR/Contents/Info.plist" <<PLIST
     <key>SUPublicEDKey</key>
     <string>${SPARKLE_PUBLIC_KEY}</string>
     <key>SUEnableAutomaticChecks</key>
-    <true/>
+    <false/>
     <key>NSLocationWhenInUseUsageDescription</key>
     <string>用于显示您所在城市的天气信息</string>
 </dict>

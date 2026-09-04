@@ -200,9 +200,7 @@ fn parse_alerts(body: &[u8]) -> Result<(Vec<Insight>, String), String> {
             .to_string();
 
         let color_label = color_zh(color_code);
-        let title = if !event_name.is_empty()
-            && event_name != "其他预警"
-            && !color_label.is_empty()
+        let title = if !event_name.is_empty() && event_name != "其他预警" && !color_label.is_empty()
         {
             format!("{event_name}{color_label}预警")
         } else if !headline.is_empty() {

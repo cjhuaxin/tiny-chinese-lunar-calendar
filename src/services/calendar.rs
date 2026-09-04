@@ -1,6 +1,6 @@
 use chrono::{Datelike, NaiveDate, Weekday};
-use tyme4rs::tyme::Culture;
 use tyme4rs::tyme::solar::SolarDay;
+use tyme4rs::tyme::Culture;
 
 use crate::models::{AppSettings, CalendarLabelPriority, DayCell, DayDetail, MonthGrid};
 use crate::services::date_humanized::relative_date_texts;
@@ -73,9 +73,7 @@ pub fn lunar_display_text(solar: &SolarDay, settings: &AppSettings) -> (String, 
     if let (Some(term), Some(intl)) = (&term_name, &intl_name) {
         return match settings.calendar_label_priority {
             CalendarLabelPriority::SolarTerm => (term.clone(), "jieqi".to_string()),
-            CalendarLabelPriority::InternationalFestival => {
-                (intl.clone(), "festival".to_string())
-            }
+            CalendarLabelPriority::InternationalFestival => (intl.clone(), "festival".to_string()),
         };
     }
 
@@ -156,8 +154,7 @@ pub fn should_show_outside_day(day: NaiveDate, focused: NaiveDate) -> bool {
         || (day.year() == focused.year() && day.month() > focused.month())
     {
         let last_day = last_day_of_month(focused.year(), focused.month());
-        let last_date =
-            NaiveDate::from_ymd_opt(focused.year(), focused.month(), last_day).unwrap();
+        let last_date = NaiveDate::from_ymd_opt(focused.year(), focused.month(), last_day).unwrap();
         let last_weekday = last_date.weekday().num_days_from_monday();
         let days_to_fill = 6 - last_weekday;
         if days_to_fill == 0 {
@@ -248,11 +245,7 @@ pub fn build_day_detail(date: NaiveDate, focused_year: i32, settings: &AppSettin
     let lunar = solar.get_lunar_day();
     let today = chrono::Local::now().date_naive();
 
-    let lunar_date_title = format!(
-        "{}{}",
-        lunar.get_lunar_month().get_name(),
-        lunar.get_name()
-    );
+    let lunar_date_title = format!("{}{}", lunar.get_lunar_month().get_name(), lunar.get_name());
 
     let zodiac = zodiac_for_year(focused_year).to_string();
     let festivals = all_festivals_for_day(date, settings);
@@ -306,8 +299,10 @@ mod tests {
     #[test]
     fn label_priority_solar_term_on_summer_solstice_fathers_day() {
         let solar = solar_from_naive(date(2026, 6, 21));
-        let (text, kind) =
-            lunar_display_text(&solar, &settings_with_priority(CalendarLabelPriority::SolarTerm));
+        let (text, kind) = lunar_display_text(
+            &solar,
+            &settings_with_priority(CalendarLabelPriority::SolarTerm),
+        );
         assert_eq!(text, "夏至");
         assert_eq!(kind, "jieqi");
     }

@@ -74,10 +74,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app = App::new()?;
     install_app(app);
 
-    // Sync launch-at-login with the persisted preference, like the Tauri setup hook.
+    // Re-apply launch-at-login from settings. If the toggle is on but the
+    // login item is missing or still the old broken LaunchAgent, this repairs it.
     with_app(|app| {
         let launch = app.state.settings.borrow().launch_at_login;
-        if let Err(err) = settings::sync_launch_at_login(launch) {
+        if let Err(err) = settings::sync_launch_at_login(launch, false) {
             eprintln!("failed to sync launch at login: {err}");
         }
     });
@@ -104,8 +105,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if event.id.as_ref() == SETTINGS_MENU_ID {
                 with_app(|app| app.show_settings());
             } else if event.id.as_ref() == ABOUT_MENU_ID {
-                #[cfg(target_os = "macos")]
-                tray::macos::show_about_panel();
+                with_app(|app| app.show_about());
             } else if event.id.as_ref() == CHECK_UPDATE_MENU_ID {
                 #[cfg(target_os = "macos")]
                 updater::check_for_updates();
@@ -150,10 +150,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .ok()
                 .and_then(|value| value.parse().ok())
                 .unwrap_or(90);
-            slint::Timer::single_shot(
-                Duration::from_secs(delay),
-                updater::check_in_background,
-            );
+            slint::Timer::single_shot(Duration::from_secs(delay), || {
+                updater::check_in_background();
+                // Sparkle's own daily schedule is disabled so it cannot pop a
+                // dialog on its own; keep a quiet information check instead.
+                let periodic = Box::new(slint::Timer::default());
+                periodic.start(
+                    slint::TimerMode::Repeated,
+                    Duration::from_secs(24 * 60 * 60),
+                    updater::check_in_background,
+                );
+                Box::leak(periodic);
+            });
         }
     });
 
@@ -200,27 +208,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let once = mode == "once";
         let count = std::rc::Rc::new(Cell::new(0u32));
         let timer = Box::new(slint::Timer::default());
-        timer.start(slint::TimerMode::Repeated, Duration::from_secs(8), move || {
-            count.set(count.get() + 1);
-            if once && count.get() > 2 {
-                return;
-            }
-            with_app(|app| {
-                let visible = app
-                    .main_handle()
-                    .is_some_and(|m| m.window().is_visible());
-                eprintln!("cycle: visible={visible} -> toggling");
-                if visible {
-                    app.drop_main();
-                } else {
-                    app.state.pinned.set(true);
-                    if let Ok(main) = app.ensure_main() {
-                        main.set_pinned(true);
-                        let _ = main.show();
-                    }
+        timer.start(
+            slint::TimerMode::Repeated,
+            Duration::from_secs(8),
+            move || {
+                count.set(count.get() + 1);
+                if once && count.get() > 2 {
+                    return;
                 }
-            });
-        });
+                with_app(|app| {
+                    let visible = app.main_handle().is_some_and(|m| m.window().is_visible());
+                    eprintln!("cycle: visible={visible} -> toggling");
+                    if visible {
+                        app.drop_main();
+                    } else {
+                        app.state.pinned.set(true);
+                        if let Ok(main) = app.ensure_main() {
+                            main.set_pinned(true);
+                            let _ = main.show();
+                        }
+                    }
+                });
+            },
+        );
         Box::leak(timer);
     }
 
@@ -262,6 +272,8 @@ fn create_tray() -> Result<(), Box<dyn std::error::Error>> {
 
     #[cfg(target_os = "macos")]
     tray::macos::apply_tray_menu_icon_style(&menu);
+
+    tray::icon::install_update_menu_item(check_update_item.clone());
 
     let tray = TrayIconBuilder::new()
         .with_id("main-tray")

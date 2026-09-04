@@ -42,11 +42,9 @@ fn save_state(state: &WarningNotifyState) {
 
 fn prune_expired(state: &mut WarningNotifyState) {
     let now = Local::now().naive_local();
-    state.notified.retain(|_, expire| {
-        parse_expire(expire)
-            .map(|dt| dt > now)
-            .unwrap_or(true)
-    });
+    state
+        .notified
+        .retain(|_, expire| parse_expire(expire).map(|dt| dt > now).unwrap_or(true));
 }
 
 pub(crate) fn parse_expire(s: &str) -> Option<NaiveDateTime> {
@@ -295,12 +293,10 @@ mod macos {
         };
 
         let identifier = NSString::from_str(&format!("warning-{}", insight.dedup_id));
-        let trigger: Option<Retained<UNTimeIntervalNotificationTrigger>> =
-            delay.map(|secs| {
-                UNTimeIntervalNotificationTrigger::triggerWithTimeInterval_repeats(secs, false)
-            });
-        let trigger_ref: Option<&UNNotificationTrigger> =
-            trigger.as_ref().map(|t| t.as_super());
+        let trigger: Option<Retained<UNTimeIntervalNotificationTrigger>> = delay.map(|secs| {
+            UNTimeIntervalNotificationTrigger::triggerWithTimeInterval_repeats(secs, false)
+        });
+        let trigger_ref: Option<&UNNotificationTrigger> = trigger.as_ref().map(|t| t.as_super());
 
         let request = UNNotificationRequest::requestWithIdentifier_content_trigger(
             &identifier,

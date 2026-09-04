@@ -91,9 +91,7 @@ fn parse_arp_mac(output: &str) -> Option<String> {
     }
     let octets: Vec<String> = raw
         .split(':')
-        .map(|octet| {
-            u8::from_str_radix(octet, 16).map(|value| format!("{value:02x}"))
-        })
+        .map(|octet| u8::from_str_radix(octet, 16).map(|value| format!("{value:02x}")))
         .collect::<Result<_, _>>()
         .ok()?;
     if octets.len() != 6 {
@@ -161,7 +159,8 @@ mod tests {
 
     #[test]
     fn parse_gateway_from_route_output() {
-        let output = "   route to: default\ndestination: default\n    gateway: 10.5.7.2\n  interface: en0\n";
+        let output =
+            "   route to: default\ndestination: default\n    gateway: 10.5.7.2\n  interface: en0\n";
         assert_eq!(parse_default_gateway(output).as_deref(), Some("10.5.7.2"));
     }
 
@@ -173,10 +172,7 @@ mod tests {
     #[test]
     fn parse_mac_normalizes_unpadded_octets() {
         let output = "? (10.5.7.2) at 8:2f:e9:f7:c7:b3 on en0 ifscope [ethernet]\n";
-        assert_eq!(
-            parse_arp_mac(output).as_deref(),
-            Some("08:2f:e9:f7:c7:b3")
-        );
+        assert_eq!(parse_arp_mac(output).as_deref(), Some("08:2f:e9:f7:c7:b3"));
     }
 
     #[test]

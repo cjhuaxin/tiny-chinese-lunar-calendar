@@ -1,0 +1,148 @@
+import { Theme } from "theme.slint";
+
+export component AboutWindow inherits Window {
+    width: 320px;
+    height: 360px;
+    title: "关于小小万年历";
+    no-frame: true;
+    always-on-top: true;
+    background: transparent;
+    default-font-family: Theme.font-family;
+
+    in-out property <string> app-version;
+    in-out property <bool> update-available;
+    in-out property <string> update-version;
+
+    callback dismiss();
+    callback start-drag();
+    callback open-homepage();
+    callback install-update();
+
+    Rectangle {
+        border-radius: Theme.radius-shell;
+        background: Theme.paper-bg;
+        border-width: 1px;
+        border-color: Theme.paper-border;
+        clip: true;
+
+        VerticalLayout {
+        header := Rectangle {
+            TouchArea {
+                moved => {
+                    if (self.pressed) {
+                        root.start-drag();
+                    }
+                }
+            }
+            VerticalLayout {
+                padding-left: 24px;
+                padding-right: 24px;
+                padding-top: 20px;
+                padding-bottom: 12px;
+                Text {
+                    text: "关于";
+                    font-size: 18px;
+                    font-weight: 600;
+                    color: Theme.ink;
+                    horizontal-alignment: center;
+                }
+            }
+
+            close-btn := Rectangle {
+                x: 10px;
+                y: 10px;
+                width: 20px;
+                height: 20px;
+                border-radius: 10px;
+                background: close-ta.has-hover ? Theme.cinnabar-soft : transparent;
+
+                close-ta := TouchArea {
+                    clicked => { root.dismiss(); }
+                    mouse-cursor: pointer;
+                }
+
+                Path {
+                    width: 9px;
+                    height: 9px;
+                    viewbox-width: 10;
+                    viewbox-height: 10;
+                    commands: "M 1 1 L 9 9 M 9 1 L 1 9";
+                    stroke: close-ta.has-hover ? Theme.cinnabar : Theme.ink-muted;
+                    stroke-width: 1.4px;
+                }
+            }
+            Rectangle {
+                y: parent.height - 1px;
+                height: 1px;
+                width: 100%;
+                background: Theme.paper-border;
+            }
+        }
+
+        VerticalLayout {
+            padding-left: 24px;
+            padding-right: 24px;
+            padding-top: 28px;
+            padding-bottom: 24px;
+            spacing: 8px;
+            alignment: center;
+
+            Text {
+                text: "小小万年历";
+                font-size: 22px;
+                font-weight: 600;
+                color: Theme.ink;
+                horizontal-alignment: center;
+            }
+            Text {
+                text: "版本 " + root.app-version;
+                font-size: 13px;
+                color: Theme.ink-muted;
+                horizontal-alignment: center;
+            }
+            Text {
+                text: "轻巧的菜单栏农历";
+                font-size: 13px;
+                color: Theme.ink-secondary;
+                horizontal-alignment: center;
+            }
+
+            Rectangle { height: 12px; }
+
+            homepage-ta := TouchArea {
+                mouse-cursor: pointer;
+                clicked => { root.open-homepage(); }
+                Text {
+                    text: "GitHub 项目主页";
+                    font-size: 13px;
+                    color: homepage-ta.has-hover ? Theme.cinnabar : Theme.solar-blue;
+                    horizontal-alignment: center;
+                }
+            }
+
+            if root.update-available : Rectangle { height: 16px; }
+
+            if root.update-available : Rectangle {
+                height: 37px;
+                border-radius: 8px;
+                background: install-ta.has-hover ? Theme.cinnabar.darker(8%) : Theme.cinnabar;
+
+                install-ta := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { root.install-update(); }
+                }
+
+                Text {
+                    width: 100%;
+                    height: 100%;
+                    text: "安装 " + root.update-version;
+                    font-size: 14px;
+                    color: #faf7f2;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+        }
+        }
+    }
+}

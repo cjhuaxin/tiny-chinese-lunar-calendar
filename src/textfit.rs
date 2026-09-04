@@ -37,7 +37,9 @@ pub fn wrap_text_lines(text: &str, max_width: f32, font_px: f32, bold: bool) -> 
 }
 
 fn max_chars_per_line(max_width: f32, font_px: f32) -> usize {
-    ((max_width / font_px).floor() as usize).saturating_sub(1).max(1)
+    ((max_width / font_px).floor() as usize)
+        .saturating_sub(1)
+        .max(1)
 }
 
 fn wrap_paragraph_em(paragraph: &str, max_chars: usize) -> Vec<String> {
@@ -68,7 +70,9 @@ fn split_lines_to_fit_width(
             out.push(line);
             continue;
         }
-        out.extend(split_line_by_chars_until_fit(&line, max_width, font_px, bold));
+        out.extend(split_line_by_chars_until_fit(
+            &line, max_width, font_px, bold,
+        ));
     }
     out
 }
@@ -113,11 +117,7 @@ pub fn measure(text: &str, px: f32, bold: bool) -> f32 {
         if id.0 == 0 {
             // Missing from the embedded subset (e.g. alert bodies); Slint falls back
             // to a system font which is often wider than our estimate.
-            width += if ch.is_ascii() {
-                0.65 * px
-            } else {
-                1.15 * px
-            };
+            width += if ch.is_ascii() { 0.65 * px } else { 1.15 * px };
             continue;
         }
         width += scaled.h_advance(id);
@@ -190,7 +190,11 @@ mod tests {
 
     #[test]
     fn multiple_festivals_overflow_badge() {
-        let festivals = vec!["春节".to_string(), "元宵节".to_string(), "情人节".to_string()];
+        let festivals = vec![
+            "春节".to_string(),
+            "元宵节".to_string(),
+            "情人节".to_string(),
+        ];
         let fit = fit_festivals("五月初五", &festivals);
         assert_eq!(fit.more_count, 2);
         assert_eq!(fit.cycle_festivals.len(), 3);
