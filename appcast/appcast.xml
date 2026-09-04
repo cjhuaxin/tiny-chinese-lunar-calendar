@@ -2,14 +2,14 @@
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
     <channel>
         <title>小小万年历</title>
-        <link>https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/releases/tag/v0.3.12</link>
+        <link>https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/releases/tag/v0.3.13</link>
         <description>Most recent updates to 小小万年历</description>
         <language>zh-cn</language>
         <item>
-            <title>Version 0.3.12</title>
-            <link>https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/releases/tag/v0.3.12</link>
-            <sparkle:version>285</sparkle:version>
-            <sparkle:shortVersionString>0.3.12</sparkle:shortVersionString>
+            <title>Version 0.3.13</title>
+            <link>https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/releases/tag/v0.3.13</link>
+            <sparkle:version>289</sparkle:version>
+            <sparkle:shortVersionString>0.3.13</sparkle:shortVersionString>
             <description><![CDATA[<!DOCTYPE html><html><head><meta charset="utf-8"><style>
 body {
     font-family: -apple-system, "PingFang SC", sans-serif;
@@ -40,28 +40,41 @@ hr { border: none; border-top: 1px solid rgba(61, 46, 31, 0.15); margin: 14px 0;
     hr { border-top-color: rgba(232, 226, 216, 0.2); }
 }
 </style></head><body>
-<h2>✨ 小小万年历 0.3.12</h2>
-<p>菜单栏上的天气预警红点，看过就消失，不再一直挂着。</p>
+<h2>✨ 小小万年历 0.3.13</h2>
+<p>修好开机启动，并改成「发现新版本再由你决定要不要装」。</p>
 <hr>
-<h3>🔴 预警红点</h3>
+<h3>🚀 开机启动</h3>
 <ul>
-<li><strong>看过即消失</strong>：展开预警详情后（点击日历里的预警条，或点击系统通知），菜单栏图标右上角的红点会立刻清除</li>
-<li><strong>新预警照常提醒</strong>：只有已读的那几条预警会被记住；之后来了新的预警，红点会重新亮起——即使新预警的级别比看过的更低</li>
-<li>已读状态会随预警过期自动清理，重启应用后依然有效</li>
+<li>修复勾选「开机启动」后重启仍不自动打开：以前把 <code>.app</code> 文件夹当成可执行文件注册，系统会直接拒绝</li>
+<li>改为用系统登录项注册；如果注册不了，会退回到正确的 <code>open -a</code> 方式</li>
+<li>启动时若设置里仍勾着开机启动、但系统那边没配好（包括旧的错误配置），会自动补配，不弹窗打扰</li>
+</ul>
+<hr>
+<h3>🔄 检查更新</h3>
+<ul>
+<li>后台只静默探测，<strong>不会再自动弹出更新窗口或开始下载</strong></li>
+<li>发现新版本时，菜单栏图标出现向上箭头；菜单项变为「安装新版本」，关于页也可一键安装</li>
+<li>点「检查更新」且已是最新版时，弹出与应用风格一致的居中提示，不再使用系统那种又大又空的对话框</li>
+<li>Sparkle 的定时自动检查已关闭，由应用自己每 24 小时静默查一次</li>
+</ul>
+<hr>
+<h3>🪟 窗口</h3>
+<ul>
+<li>「偏好设置」和「关于」四个角改为与主日历相同的圆角</li>
 </ul>
 <hr>
 <h3>📦 安装与升级</h3>
 <ul>
-<li><strong>0.3.x 用户</strong>：菜单栏 → 检查更新，或下载 <strong>xiaoxiao-wannianli-0.3.12.dmg</strong></li>
+<li><strong>0.3.x 用户</strong>：菜单栏 → 检查更新，或下载 <strong>xiaoxiao-wannianli-0.3.13.dmg</strong></li>
 </ul>
 <hr>
-<p><strong>完整变更</strong>: <a href="https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/compare/v0.3.11...v0.3.12">https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/compare/v0.3.11...v0.3.12</a></p>
+<p><strong>完整变更</strong>: <a href="https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/compare/v0.3.12...v0.3.13">https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/compare/v0.3.12...v0.3.13</a></p>
 </body></html>]]></description>
-            <pubDate>Mon, 03 Aug 2026 02:35:11 +0000</pubDate>
+            <pubDate>Fri, 04 Sep 2026 03:25:49 +0000</pubDate>
             <enclosure
-                url="https://tclc-updates.cjhuaxin.cc/releases/xiaoxiao-wannianli-0.3.12.zip"
-                sparkle:edSignature="j/EdmOav4VmgZr7c4lfMR78dcaUsWkGs2+1T+CmXnadcb8lGal3AYwEQ+EpsJX80s7PRaDtV1MWimuSOlYjzDg=="
-                length="11752177"
+                url="https://tclc-updates.cjhuaxin.cc/releases/xiaoxiao-wannianli-0.3.13.zip"
+                sparkle:edSignature="g3hUc1PkKQMrd9P+ntTY1SOyIgZaJ/tZoRHNJ0PsKYv+dX8LakGoEFUn1ILrgr++qVMvnmbHwXizGtFbShw5Cw=="
+                length="12187563"
                 type="application/octet-stream" />
         </item>
     </channel>
