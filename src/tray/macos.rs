@@ -1,10 +1,13 @@
 use block2::RcBlock;
+use objc2::rc::Retained;
 use objc2::MainThreadMarker;
 use objc2_app_kit::{
-    NSAlert, NSAlertStyle, NSApplication, NSCellImagePosition, NSEvent, NSEventMask, NSMenu,
-    NSScreen, NSView, NSWorkspace, NSWorkspaceDidWakeNotification,
+    NSAlert, NSAlertStyle, NSApplication, NSCellImagePosition, NSEvent, NSEventMask,
+    NSEventModifierFlags, NSEventType, NSMenu, NSScreen, NSStatusItem, NSView, NSWorkspace,
+    NSWorkspaceDidWakeNotification,
 };
 use objc2_foundation::{NSNotification, NSOperationQueue, NSSize, NSString, NSURL};
+use std::cell::Cell;
 use std::mem;
 use std::ptr::NonNull;
 use tray_icon::TrayIcon;
@@ -201,6 +204,111 @@ pub fn debug_dump_screens(tray: &TrayIcon) {
             }
         }
     }
+}
+
+/// macOS 15+ (and especially 26/27) shows `NSStatusItem.menu` on every click
+/// of the status item. tray-icon still assigns that menu and relies on an
+/// overlay `NSView` plus `menu_on_left_click(false)` to keep left-click for
+/// the app; AppKit now bypasses the overlay, so left-click opens the context
+/// menu and the calendar never appears.
+///
+/// Detach the menu from the status item and split the clicks ourselves:
+/// left-up toggles the calendar, right-down (or Control-click) pops the menu.
+pub fn install_click_split(tray: &TrayIcon, on_left_click: impl Fn() + 'static) {
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+    let Some(status_item) = tray.ns_status_item() else {
+        return;
+    };
+    let Some(menu) = status_item.menu(mtm) else {
+        return;
+    };
+
+    // Stop AppKit from treating every click as "show the menu".
+    status_item.setMenu(None);
+
+    let suppress_left_up = Cell::new(false);
+    let status_item = status_item.clone();
+    let block = RcBlock::new(move |event: NonNull<NSEvent>| -> *mut NSEvent {
+        let ev = unsafe { event.as_ref() };
+        if !event_hits_status_item(ev, &status_item, mtm) {
+            return event.as_ptr();
+        }
+
+        let event_type = ev.r#type();
+        let control = ev.modifierFlags().contains(NSEventModifierFlags::Control);
+        let is_menu_click = event_type == NSEventType::RightMouseDown
+            || (event_type == NSEventType::LeftMouseDown && control);
+
+        if is_menu_click {
+            suppress_left_up.set(event_type == NSEventType::LeftMouseDown);
+            pop_status_menu(&status_item, &menu);
+            return std::ptr::null_mut();
+        }
+
+        if event_type == NSEventType::LeftMouseDown {
+            if let Some(button) = status_item.button(mtm) {
+                button.highlight(true);
+            }
+            return std::ptr::null_mut();
+        }
+
+        if event_type == NSEventType::LeftMouseUp {
+            if let Some(button) = status_item.button(mtm) {
+                button.highlight(false);
+            }
+            if suppress_left_up.replace(false) {
+                return std::ptr::null_mut();
+            }
+            on_left_click();
+            return std::ptr::null_mut();
+        }
+
+        event.as_ptr()
+    });
+
+    let mask = NSEventMask::LeftMouseDown | NSEventMask::LeftMouseUp | NSEventMask::RightMouseDown;
+    let monitor = unsafe { NSEvent::addLocalMonitorForEventsMatchingMask_handler(mask, &block) };
+
+    // Keep the monitor (and the captured menu / status item) alive.
+    mem::forget(monitor);
+}
+
+fn event_hits_status_item(
+    event: &NSEvent,
+    status_item: &NSStatusItem,
+    mtm: MainThreadMarker,
+) -> bool {
+    let Some(button) = status_item.button(mtm) else {
+        return false;
+    };
+    let Some(window) = button.window() else {
+        return false;
+    };
+
+    let win_num = window.windowNumber();
+    if win_num != 0 && event.windowNumber() == win_num {
+        return true;
+    }
+
+    // Status-bar events sometimes report windowNumber 0 / a nil window.
+    // Fall back to a screen-space hit test of the status item's window.
+    let mouse = NSEvent::mouseLocation();
+    let frame = window.frame();
+    mouse.x >= frame.origin.x
+        && mouse.x < frame.origin.x + frame.size.width
+        && mouse.y >= frame.origin.y
+        && mouse.y < frame.origin.y + frame.size.height
+}
+
+fn pop_status_menu(status_item: &NSStatusItem, menu: &Retained<NSMenu>) {
+    // Temporarily re-attach so AppKit highlights the item while the menu is
+    // open, then detach again so the next left-click cannot show the menu.
+    status_item.setMenu(Some(menu));
+    #[allow(deprecated)]
+    status_item.popUpStatusItemMenu(menu);
+    status_item.setMenu(None);
 }
 
 /// Observes mouse clicks in *other* applications (global NSEvent monitor).

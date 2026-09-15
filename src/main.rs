@@ -282,6 +282,14 @@ fn create_tray() -> Result<(), Box<dyn std::error::Error>> {
         .with_menu_on_left_click(false)
         .build()?;
 
+    #[cfg(target_os = "macos")]
+    tray::macos::install_click_split(&tray, || {
+        if let Some(anchor) = tray::icon::tray_anchor_logical() {
+            with_app(|app| app.state.tray_anchor.set(Some(anchor)));
+        }
+        with_app(|app| app.toggle_main_window());
+    });
+
     tray::icon::install_tray(tray);
     Ok(())
 }
@@ -296,6 +304,9 @@ fn handle_tray_event(event: TrayIconEvent) {
         with_app(|app| app.state.tray_anchor.set(Some(anchor)));
     }
 
+    // Fallback for left-click when the macOS local monitor does not see the
+    // event. `install_click_split` swallows status-item clicks it handles, so
+    // this does not double-toggle on the new path.
     if let TrayIconEvent::Click {
         button: MouseButton::Left,
         button_state: MouseButtonState::Up,
