@@ -3,6 +3,7 @@
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use chrono::{Datelike, Local, NaiveDate};
@@ -12,14 +13,19 @@ use crate::auto_return::{
     self, is_at_today_view, months_from_today, should_return_on_date_change,
     should_return_on_reopen, IdleCheck, AUTO_RETURN_POLL,
 };
-use crate::models::{AppSettings, CalendarLabelPriority, DayDetail};
+use crate::models::{AppSettings, CalendarLabelPriority, DayDetail, SavedLocation};
 use crate::services::calendar::{build_day_detail, build_month_grid};
 use crate::services::insights::{self, InsightLevel};
+use crate::services::network_location::{self, Fingerprint};
+use crate::services::weather::{CityCandidate, FallbackKind};
 use crate::services::{holiday, location, notifications, weather};
 use crate::settings::{load_settings, save_settings, sync_launch_at_login};
 use crate::textfit;
 use crate::tray::render::AlertLevel;
-use crate::{AboutWindow, DayCellData, MainWindow, SettingsWindow, StatusAlertWindow, WeekdayLabel};
+use crate::{
+    AboutWindow, DayCellData, LocationCandidate, MainWindow, SettingsWindow, StatusAlertWindow,
+    WeekdayLabel,
+};
 
 use slint::winit_030::{winit, WinitWindowAccessor};
 use winit::dpi::LogicalPosition;
@@ -44,6 +50,19 @@ const HERO_WEEKDAYS: [&str; 7] = ["周日", "周一", "周二", "周三", "周�
 const CYCLE_INTERVAL: Duration = Duration::from_secs(5);
 const DETAIL_REFRESH_INTERVAL: Duration = Duration::from_secs(30);
 const INSIGHT_POLL_INTERVAL: Duration = Duration::from_secs(10 * 60);
+const LOCATION_SEARCH_DEBOUNCE: Duration = Duration::from_millis(300);
+
+/// Set while the first precise fix is being turned into a default city.
+static AUTO_DEFAULT_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
+
+/// Which window's location picker a search belongs to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PickerTarget {
+    /// Calendar popover: districts allowed, bound to the current network.
+    Main,
+    /// Settings: city-level default location.
+    Settings,
+}
 
 pub struct App {
     /// The calendar window is created on demand and dropped when hidden so
@@ -91,6 +110,19 @@ pub struct State {
     /// the just-created window shortly after our placement, so the Moved
     /// handler shoves it back to the tray anchor a limited number of times.
     pos_corrections: Cell<u32>,
+    /// Results backing each window's location picker list.
+    main_location_results: RefCell<Vec<CityCandidate>>,
+    settings_location_results: RefCell<Vec<CityCandidate>>,
+    /// Bumped per keystroke; stale debounced searches compare and bail.
+    location_search_gen: Cell<u64>,
+    /// Network the location tip was shown for, so closing it can be
+    /// remembered per network.
+    location_tip_network: RefCell<Option<Fingerprint>>,
+    /// Settings-window draft of the default location; only written back on
+    /// save when the user changed it.
+    draft_default_location: RefCell<Option<SavedLocation>>,
+    draft_location_dirty: Cell<bool>,
+    draft_clear_networks: Cell<bool>,
 }
 
 thread_local! {
@@ -189,6 +221,13 @@ impl App {
             last_interaction_at: Cell::new(now_instant),
             last_navigation_at: Cell::new(now_instant),
             pos_corrections: Cell::new(0),
+            main_location_results: RefCell::new(Vec::new()),
+            settings_location_results: RefCell::new(Vec::new()),
+            location_search_gen: Cell::new(0),
+            location_tip_network: RefCell::new(None),
+            draft_default_location: RefCell::new(None),
+            draft_location_dirty: Cell::new(false),
+            draft_clear_networks: Cell::new(false),
         });
 
         // The timers look the window up through the app registry: the window
@@ -418,6 +457,184 @@ impl App {
                 with_app(|app| app.acknowledge_warnings());
             });
         }
+
+        {
+            let main_weak = main.as_weak();
+            let state = self.state.clone();
+            main.on_open_location_picker(move || {
+                let Some(main) = main_weak.upgrade() else {
+                    return;
+                };
+                state.main_location_results.borrow_mut().clear();
+                main.set_location_query("".into());
+                main.set_location_results(Rc::new(VecModel::<LocationCandidate>::default()).into());
+                main.set_location_status("".into());
+                main.set_location_picker_open(true);
+            });
+        }
+
+        {
+            let state = self.state.clone();
+            main.on_location_query_edited(move |query| {
+                schedule_location_search(&state, PickerTarget::Main, query.to_string());
+            });
+        }
+
+        {
+            let main_weak = main.as_weak();
+            let state = self.state.clone();
+            main.on_location_chosen(move |index| {
+                let Some(main) = main_weak.upgrade() else {
+                    return;
+                };
+                let Some(candidate) = usize::try_from(index)
+                    .ok()
+                    .and_then(|i| state.main_location_results.borrow().get(i).cloned())
+                else {
+                    return;
+                };
+                main.set_location_picker_open(false);
+                main.set_location_tip_visible(false);
+                with_app(|app| app.use_network_location(&main, candidate));
+            });
+        }
+
+        {
+            let main_weak = main.as_weak();
+            let state = self.state.clone();
+            main.on_dismiss_location_tip(move || {
+                if let Some(main) = main_weak.upgrade() {
+                    main.set_location_tip_visible(false);
+                }
+                let fingerprint = state.location_tip_network.borrow().clone().unwrap_or_default();
+                std::thread::spawn(move || network_location::dismiss_tip(&fingerprint));
+            });
+        }
+    }
+
+    /// Binds a location picked in the calendar popover to the current network
+    /// and shows its weather right away. The first pick also seeds the
+    /// default city when none is set.
+    fn use_network_location(self: &Rc<Self>, main: &MainWindow, candidate: CityCandidate) {
+        let settings = self.state.settings.borrow().clone();
+        let needs_default = settings.default_location.is_none();
+        let show_warning = settings.show_weather_warning;
+        let notify = settings.warning_notifications;
+
+        weather::set_loading();
+        weather::apply_weather_to_window(main);
+
+        let main_weak = main.as_weak();
+        std::thread::spawn(move || {
+            let name = candidate.name.clone();
+            if !network_location::bind_current_network(candidate.lat, candidate.lon, &name) {
+                eprintln!("no network fingerprint; location kept for this session only");
+            }
+            weather::store_coordinates(candidate.lat, candidate.lon, weather::CoordSource::Network);
+            fetch_weather_and_insights(
+                candidate.lat,
+                candidate.lon,
+                main_weak,
+                show_warning,
+                notify,
+                Some(name),
+            );
+
+            if needs_default {
+                let default = weather::city_level_location(&candidate, true);
+                let _ = slint::invoke_from_event_loop(move || {
+                    with_app(|app| app.set_default_location_if_unset(default));
+                });
+            }
+        });
+    }
+
+    /// Persists an automatically derived default city unless the user has
+    /// set one in the meantime.
+    fn set_default_location_if_unset(&self, location: SavedLocation) {
+        let mut settings = self.state.settings.borrow_mut();
+        if settings.default_location.is_some() {
+            return;
+        }
+        settings.default_location = Some(location.clone());
+        if let Err(err) = save_settings(&settings) {
+            eprintln!("failed to save settings: {err}");
+        }
+        drop(settings);
+        // Keep an open, untouched settings window in sync.
+        if !self.state.draft_location_dirty.get() {
+            *self.state.draft_default_location.borrow_mut() = Some(location.clone());
+            self.settings_win
+                .set_draft_default_location_name(location.name.into());
+            self.settings_win
+                .set_draft_default_location_auto(location.auto);
+        }
+    }
+
+    /// Swaps in city-center coordinates for a default city the user picked
+    /// via one of its districts, whether it is still a draft or already saved.
+    fn refine_default_location(&self, refined: SavedLocation) {
+        let state = &self.state;
+        if state.draft_location_dirty.get() {
+            let mut draft = state.draft_default_location.borrow_mut();
+            if draft.as_ref().is_some_and(|d| d.name == refined.name) {
+                *draft = Some(refined);
+            }
+            return;
+        }
+        let mut settings = state.settings.borrow_mut();
+        let matches = settings
+            .default_location
+            .as_ref()
+            .is_some_and(|d| d.name == refined.name && !d.auto);
+        if matches {
+            settings.default_location = Some(refined);
+            if let Err(err) = save_settings(&settings) {
+                eprintln!("failed to save settings: {err}");
+            }
+        }
+    }
+
+    fn apply_location_results(&self, target: PickerTarget, items: Vec<CityCandidate>, status: &str) {
+        let rows: Vec<LocationCandidate> = items
+            .iter()
+            .map(|c| match target {
+                PickerTarget::Main => LocationCandidate {
+                    title: c.name.clone().into(),
+                    subtitle: c.subtitle().into(),
+                },
+                PickerTarget::Settings => LocationCandidate {
+                    title: city_name_of(c).into(),
+                    subtitle: c.adm1.clone().into(),
+                },
+            })
+            .collect();
+        let model: slint::ModelRc<LocationCandidate> = Rc::new(VecModel::from(rows)).into();
+        match target {
+            PickerTarget::Main => {
+                *self.state.main_location_results.borrow_mut() = items;
+                if let Some(main) = self.main_handle() {
+                    main.set_location_results(model);
+                    main.set_location_status(status.into());
+                }
+            }
+            PickerTarget::Settings => {
+                *self.state.settings_location_results.borrow_mut() = items;
+                self.settings_win.set_location_results(model);
+                self.settings_win.set_location_status(status.into());
+            }
+        }
+    }
+
+    fn set_location_status(&self, target: PickerTarget, status: &str) {
+        match target {
+            PickerTarget::Main => {
+                if let Some(main) = self.main_handle() {
+                    main.set_location_status(status.into());
+                }
+            }
+            PickerTarget::Settings => self.settings_win.set_location_status(status.into()),
+        }
     }
 
     fn wire_settings_callbacks(self: &Rc<Self>) {
@@ -448,7 +665,21 @@ impl App {
                     auto_return_minutes: auto_return::normalize_auto_return_minutes(
                         win.get_draft_auto_return_minutes() as u8,
                     ),
+                    default_location: if state.draft_location_dirty.get() {
+                        state.draft_default_location.borrow().clone()
+                    } else {
+                        state.settings.borrow().default_location.clone()
+                    },
                 };
+                if state.draft_clear_networks.get() {
+                    network_location::clear_all();
+                }
+                if state.draft_location_dirty.get() || state.draft_clear_networks.get() {
+                    weather::clear_fallback_coordinates();
+                }
+                state.draft_location_dirty.set(false);
+                state.draft_clear_networks.set(false);
+                win.set_location_picker_open(false);
                 if let Err(err) = save_settings(&new_settings) {
                     eprintln!("failed to save settings: {err}");
                 }
@@ -473,9 +704,86 @@ impl App {
 
         {
             let win_weak = win.as_weak();
+            let state = self.state.clone();
             win.on_cancel(move || {
+                state.draft_location_dirty.set(false);
+                state.draft_clear_networks.set(false);
                 if let Some(win) = win_weak.upgrade() {
+                    win.set_location_picker_open(false);
                     let _ = win.window().hide();
+                }
+            });
+        }
+
+        {
+            let win_weak = win.as_weak();
+            let state = self.state.clone();
+            win.on_change_default_location(move || {
+                let Some(win) = win_weak.upgrade() else {
+                    return;
+                };
+                state.settings_location_results.borrow_mut().clear();
+                win.set_location_query("".into());
+                win.set_location_results(Rc::new(VecModel::<LocationCandidate>::default()).into());
+                win.set_location_status("".into());
+                win.set_location_picker_open(true);
+            });
+        }
+
+        {
+            let state = self.state.clone();
+            win.on_location_query_edited(move |query| {
+                schedule_location_search(&state, PickerTarget::Settings, query.to_string());
+            });
+        }
+
+        {
+            let win_weak = win.as_weak();
+            let state = self.state.clone();
+            win.on_location_chosen(move |index| {
+                let Some(win) = win_weak.upgrade() else {
+                    return;
+                };
+                let Some(candidate) = usize::try_from(index)
+                    .ok()
+                    .and_then(|i| state.settings_location_results.borrow().get(i).cloned())
+                else {
+                    return;
+                };
+                win.set_location_picker_open(false);
+
+                // Show the choice at once; refine to city-center coordinates
+                // in the background when a district was picked.
+                let name = city_name_of(&candidate);
+                *state.draft_default_location.borrow_mut() = Some(SavedLocation {
+                    name: name.clone(),
+                    lat: candidate.lat,
+                    lon: candidate.lon,
+                    auto: false,
+                });
+                state.draft_location_dirty.set(true);
+                win.set_draft_default_location_name(name.into());
+                win.set_draft_default_location_auto(false);
+
+                if candidate.is_city_level() {
+                    return;
+                }
+                std::thread::spawn(move || {
+                    let refined = weather::city_level_location(&candidate, false);
+                    let _ = slint::invoke_from_event_loop(move || {
+                        with_app(|app| app.refine_default_location(refined));
+                    });
+                });
+            });
+        }
+
+        {
+            let win_weak = win.as_weak();
+            let state = self.state.clone();
+            win.on_clear_network_locations(move || {
+                state.draft_clear_networks.set(true);
+                if let Some(win) = win_weak.upgrade() {
+                    win.set_draft_network_count(0);
                 }
             });
         }
@@ -657,6 +965,23 @@ impl App {
         self.settings_win
             .set_draft_auto_return_minutes(i32::from(settings.auto_return_minutes));
 
+        let default = settings.default_location.clone();
+        self.settings_win.set_draft_default_location_name(
+            default
+                .as_ref()
+                .map(|d| d.name.clone())
+                .unwrap_or_default()
+                .into(),
+        );
+        self.settings_win
+            .set_draft_default_location_auto(default.as_ref().is_some_and(|d| d.auto));
+        *self.state.draft_default_location.borrow_mut() = default;
+        self.state.draft_location_dirty.set(false);
+        self.state.draft_clear_networks.set(false);
+        self.settings_win
+            .set_draft_network_count(network_location::entry_count() as i32);
+        self.settings_win.set_location_picker_open(false);
+
         // NOTE: no pending-geometry trick here. The settings component lives
         // for the whole app, so the attributes hook only ran once at startup;
         // queuing geometry now would leak into the next calendar-window
@@ -726,21 +1051,48 @@ impl App {
         let main_weak = main.as_weak();
         let show_warning = settings.show_weather_warning;
         let notify = settings.warning_notifications;
+        let default = settings.default_location;
         location::request_coordinates(move |result| match result {
             Ok((lat, lon)) => {
-                fetch_weather_and_insights(lat, lon, main_weak, show_warning, notify);
+                set_location_tip(&main_weak, None);
+                if default.is_none() {
+                    auto_default_from_fix(lat, lon);
+                }
+                fetch_weather_and_insights(lat, lon, main_weak, show_warning, notify, None);
             }
             Err(err) => {
                 eprintln!("location failed: {err}");
                 let main_weak = main_weak.clone();
                 std::thread::spawn(move || {
-                    if let Some((lat, lon)) = weather::resolve_coordinates_fallback() {
-                        fetch_weather_and_insights(lat, lon, main_weak, show_warning, notify);
-                    } else {
-                        weather::set_unavailable(&err);
-                        let _ = slint::invoke_from_event_loop(move || {
-                            apply_weather_ui(&main_weak);
-                        });
+                    match weather::resolve_coordinates_fallback(default.as_ref()) {
+                        Some(found) => {
+                            let tip = if found.kind.is_approximate()
+                                && !network_location::tip_dismissed(&found.fingerprint)
+                            {
+                                Some((location_tip_text(found.kind, found.name.as_deref()), found.fingerprint))
+                            } else {
+                                None
+                            };
+                            set_location_tip(&main_weak, tip);
+                            fetch_weather_and_insights(
+                                found.lat,
+                                found.lon,
+                                main_weak,
+                                show_warning,
+                                notify,
+                                found.name,
+                            );
+                        }
+                        None => {
+                            let fingerprint = network_location::current_fingerprint();
+                            let tip = (!network_location::tip_dismissed(&fingerprint))
+                                .then(|| ("无法定位，设置位置后即可显示天气".to_string(), fingerprint));
+                            set_location_tip(&main_weak, tip);
+                            weather::set_unavailable(&err);
+                            let _ = slint::invoke_from_event_loop(move || {
+                                apply_weather_ui(&main_weak);
+                            });
+                        }
                     }
                 });
             }
@@ -757,10 +1109,9 @@ impl App {
         }
 
         let notify = settings.warning_notifications;
+        let default = settings.default_location;
         std::thread::spawn(move || {
-            let Some((lat, lon)) =
-                weather::cached_coordinates().or_else(weather::resolve_coordinates_fallback)
-            else {
+            let Some((lat, lon)) = weather::background_coordinates(default.as_ref()) else {
                 return;
             };
             insights::ensure_warnings(lat, lon, move || {
@@ -1050,15 +1401,124 @@ fn apply_insights_after_fetch(notify: bool) {
     });
 }
 
+/// Shows (with text) or hides the approximate-location tip. Safe to call
+/// from any thread.
+fn set_location_tip(main_weak: &slint::Weak<MainWindow>, tip: Option<(String, Fingerprint)>) {
+    let main_weak = main_weak.clone();
+    let _ = slint::invoke_from_event_loop(move || {
+        let Some(main) = main_weak.upgrade() else {
+            return;
+        };
+        match tip {
+            Some((text, fingerprint)) => {
+                with_app(|app| {
+                    *app.state.location_tip_network.borrow_mut() = Some(fingerprint);
+                });
+                main.set_location_tip_text(text.into());
+                main.set_location_tip_visible(true);
+            }
+            None => main.set_location_tip_visible(false),
+        }
+    });
+}
+
+fn location_tip_text(kind: FallbackKind, name: Option<&str>) -> String {
+    match (kind, name) {
+        (FallbackKind::Default, Some(name)) => format!("无法精确定位，当前显示默认城市「{name}」的天气"),
+        _ => "无法精确定位，天气位置可能不准确".to_string(),
+    }
+}
+
+/// First install: once a precise fix arrives, store its city as the default
+/// location. Retried on a later fix if the lookup fails.
+fn auto_default_from_fix(lat: f64, lon: f64) {
+    if AUTO_DEFAULT_IN_FLIGHT.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    std::thread::spawn(move || {
+        let Some(default) = weather::default_location_from_fix(lat, lon) else {
+            AUTO_DEFAULT_IN_FLIGHT.store(false, Ordering::SeqCst);
+            return;
+        };
+        let _ = slint::invoke_from_event_loop(move || {
+            with_app(|app| app.set_default_location_if_unset(default));
+        });
+    });
+}
+
+/// City name a candidate maps to when used as the city-level default.
+fn city_name_of(candidate: &CityCandidate) -> String {
+    if candidate.adm2.is_empty() {
+        candidate.name.clone()
+    } else {
+        candidate.adm2.clone()
+    }
+}
+
+/// Collapses districts into their parent cities for the settings picker,
+/// keeping the first hit per city.
+fn dedupe_to_cities(items: Vec<CityCandidate>) -> Vec<CityCandidate> {
+    let mut seen = std::collections::HashSet::new();
+    items
+        .into_iter()
+        .filter(|c| seen.insert((city_name_of(c), c.adm1.clone())))
+        .collect()
+}
+
+/// Debounced GeoAPI search for a location picker; only the latest query's
+/// results are applied.
+fn schedule_location_search(state: &Rc<State>, target: PickerTarget, query: String) {
+    let generation = state.location_search_gen.get().wrapping_add(1);
+    state.location_search_gen.set(generation);
+    let query = query.trim().to_string();
+    if query.is_empty() {
+        with_app(|app| app.apply_location_results(target, Vec::new(), ""));
+        return;
+    }
+    slint::Timer::single_shot(LOCATION_SEARCH_DEBOUNCE, move || {
+        with_app(|app| {
+            if app.state.location_search_gen.get() != generation {
+                return;
+            }
+            app.set_location_status(target, "搜索中…");
+        });
+        std::thread::spawn(move || {
+            let result = weather::search_cities(&query);
+            let _ = slint::invoke_from_event_loop(move || {
+                with_app(|app| {
+                    if app.state.location_search_gen.get() != generation {
+                        return;
+                    }
+                    match result {
+                        Ok(items) => {
+                            let items = match target {
+                                PickerTarget::Main => items,
+                                PickerTarget::Settings => dedupe_to_cities(items),
+                            };
+                            let status = if items.is_empty() { "未找到匹配的地点" } else { "" };
+                            app.apply_location_results(target, items, status);
+                        }
+                        Err(err) => {
+                            eprintln!("location search failed: {err}");
+                            app.apply_location_results(target, Vec::new(), "搜索失败，请稍后重试");
+                        }
+                    }
+                });
+            });
+        });
+    });
+}
+
 fn fetch_weather_and_insights(
     lat: f64,
     lon: f64,
     main_weak: slint::Weak<MainWindow>,
     show_warning: bool,
     notify: bool,
+    city: Option<String>,
 ) {
     let main_weak_weather = main_weak.clone();
-    weather::ensure_weather(lat, lon, move || {
+    weather::ensure_weather(lat, lon, city, move || {
         let main_weak_weather = main_weak_weather.clone();
         let _ = slint::invoke_from_event_loop(move || {
             apply_weather_ui(&main_weak_weather);
@@ -1169,7 +1629,8 @@ pub fn handle_date_rollover(main: &MainWindow, state: &Rc<State>) {
     }
     if state.settings.borrow().show_weather {
         let main_weak = main.as_weak();
-        weather::refresh_forecast_after_day_change(move || {
+        let default = state.settings.borrow().default_location.clone();
+        weather::refresh_forecast_after_day_change(default, move || {
             let main_weak = main_weak.clone();
             let _ = slint::invoke_from_event_loop(move || {
                 let Some(main) = main_weak.upgrade() else {

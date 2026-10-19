@@ -1,4 +1,10 @@
 import { Theme } from "theme.slint";
+import { ScrollView } from "std-widgets.slint";
+
+export struct LocationCandidate {
+    title: string, // "南山"
+    subtitle: string, // "深圳 · 广东省"
+}
 
 export struct DayCellData {
     date: string,
@@ -267,6 +273,7 @@ export component WeatherBadge inherits Rectangle {
     // gap to the action buttons stays consistent.
     in property <length> content-w: 72px;
     in property <bool> show-weather: true;
+    callback city-clicked;
 
     visible: root.show-weather;
     // Collapses to zero width when hidden: visible:false alone would still
@@ -297,12 +304,17 @@ export component WeatherBadge inherits Rectangle {
             height: 12px * root.tscale;
             width: temp-txt.width;
             alignment: center;
-            Text {
+            city-txt := Text {
                 text: root.city;
                 font-size: 10px * root.tscale;
                 font-weight: 700;
-                color: Theme.ink;
+                color: city-ta.has-hover ? Theme.cinnabar : Theme.ink;
                 vertical-alignment: center;
+
+                city-ta := TouchArea {
+                    clicked => { root.city-clicked(); }
+                    mouse-cursor: pointer;
+                }
             }
         }
         HorizontalLayout {
@@ -349,7 +361,12 @@ export component WeatherBadge inherits Rectangle {
         }
     }
 
-    // Loading / error fallback: compact icon + status text.
+    // Loading / error fallback: compact icon + status text. Clicking it opens
+    // the location picker, the usual fix when locating failed.
+    if !root.has-data : TouchArea {
+        clicked => { root.city-clicked(); }
+        mouse-cursor: pointer;
+    }
     if !root.has-data : HorizontalLayout {
         alignment: center;
         spacing: 6px;
@@ -613,5 +630,303 @@ export component TodayButton inherits Rectangle {
         color: Theme.cinnabar;
         horizontal-alignment: center;
         vertical-alignment: center;
+    }
+}
+
+component CloseGlyphButton inherits Rectangle {
+    callback clicked;
+
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    background: ta.has-hover ? Theme.cinnabar-soft : transparent;
+
+    ta := TouchArea {
+        clicked => { root.clicked(); }
+        mouse-cursor: pointer;
+    }
+
+    Path {
+        width: 8px;
+        height: 8px;
+        viewbox-width: 10;
+        viewbox-height: 10;
+        commands: "M 1 1 L 9 9 M 9 1 L 1 9";
+        stroke: ta.has-hover ? Theme.cinnabar : Theme.ink-muted;
+        stroke-width: 1.4px;
+    }
+}
+
+// Quiet strip shown when the weather location is only approximate. Same
+// slot and height as InsightStrip, which takes precedence.
+export component LocationTip inherits Rectangle {
+    in property <bool> show: false;
+    in property <string> text: "";
+    callback action();
+    callback dismiss();
+
+    height: root.show ? 26px : 0px;
+    visible: root.show;
+    clip: true;
+    background: Theme.paper-surface;
+
+    if root.show : HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 6px;
+        spacing: 6px;
+        alignment: stretch;
+
+        // Location pin glyph
+        VerticalLayout {
+            alignment: center;
+            horizontal-stretch: 0;
+            Path {
+                width: 11px;
+                height: 11px;
+                viewbox-width: 24;
+                viewbox-height: 24;
+                commands: "M 12 22 C 12 22 4.5 14.5 4.5 9.5 A 7.5 7.5 0 0 1 19.5 9.5 C 19.5 14.5 12 22 12 22 Z M 12 7 A 2.5 2.5 0 1 0 12.001 7 Z";
+                stroke: Theme.ink-secondary;
+                stroke-width: 1.6px;
+                fill: transparent;
+            }
+        }
+
+        Text {
+            text: root.text;
+            font-size: 11px;
+            color: Theme.ink-secondary;
+            vertical-alignment: center;
+            overflow: elide;
+            horizontal-stretch: 1;
+        }
+
+        Rectangle {
+            horizontal-stretch: 0;
+            border-radius: 5px;
+            background: action-ta.has-hover ? Theme.cinnabar-soft : transparent;
+            HorizontalLayout {
+                padding-left: 6px;
+                padding-right: 6px;
+                Text {
+                    text: "设置位置";
+                    font-size: 11px;
+                    font-weight: 600;
+                    color: Theme.cinnabar;
+                    vertical-alignment: center;
+                }
+            }
+            action-ta := TouchArea {
+                clicked => { root.action(); }
+                mouse-cursor: pointer;
+            }
+        }
+
+        VerticalLayout {
+            alignment: center;
+            horizontal-stretch: 0;
+            CloseGlyphButton {
+                clicked => { root.dismiss(); }
+            }
+        }
+    }
+
+    if root.show : Rectangle {
+        y: parent.height - 1px;
+        height: 1px;
+        width: 100%;
+        background: Theme.paper-divider;
+    }
+}
+
+// Modal search overlay for picking a weather location (QWeather GeoAPI).
+// Fills its parent; the dialog is centered.
+export component LocationPicker inherits Rectangle {
+    in property <string> heading: "设置天气位置";
+    in property <string> placeholder: "搜索城市或区县，如：南山";
+    in property <string> hint: "仅在无法精确定位时使用";
+    in property <string> status: "";
+    in property <[LocationCandidate]> results;
+    in-out property <string> query: "";
+    callback edited(string);
+    callback chosen(int);
+    callback close();
+
+    width: 100%;
+    height: 100%;
+    background: #3d2e1f59; // rgba(61,46,31,0.35)
+
+    TouchArea {
+        clicked => { root.close(); }
+    }
+
+    dialog := Rectangle {
+        width: min(340px, root.width - 40px);
+        height: min(310px, root.height - 40px);
+        background: Theme.paper-bg;
+        border-radius: 12px;
+        border-width: 1px;
+        border-color: Theme.paper-border;
+        clip: true;
+
+        TouchArea { } // swallow clicks inside the dialog
+
+        VerticalLayout {
+            // header
+            Rectangle {
+                height: 44px;
+                background: Theme.paper-surface;
+                HorizontalLayout {
+                    padding-left: 16px;
+                    padding-right: 12px;
+                    spacing: 8px;
+                    Text {
+                        text: root.heading;
+                        font-size: 15px;
+                        font-weight: 700;
+                        color: Theme.ink;
+                        vertical-alignment: center;
+                        horizontal-stretch: 1;
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        horizontal-stretch: 0;
+                        CloseGlyphButton {
+                            clicked => { root.close(); }
+                        }
+                    }
+                }
+                Rectangle {
+                    y: parent.height - 1px;
+                    height: 1px;
+                    width: 100%;
+                    background: Theme.paper-divider;
+                }
+            }
+
+            // search field
+            HorizontalLayout {
+                padding-left: 14px;
+                padding-right: 14px;
+                padding-top: 12px;
+                padding-bottom: 8px;
+                Rectangle {
+                    height: 32px;
+                    border-radius: 8px;
+                    background: white;
+                    border-width: 1px;
+                    border-color: input.has-focus ? Theme.cinnabar : Theme.paper-border;
+
+                    HorizontalLayout {
+                        padding-left: 10px;
+                        padding-right: 10px;
+                        Rectangle {
+                            if root.query == "" : Text {
+                                width: 100%;
+                                height: 100%;
+                                text: root.placeholder;
+                                font-size: 13px;
+                                color: Theme.ink-muted;
+                                vertical-alignment: center;
+                            }
+                            input := TextInput {
+                                width: 100%;
+                                height: 100%;
+                                text <=> root.query;
+                                single-line: true;
+                                font-size: 13px;
+                                color: Theme.ink;
+                                vertical-alignment: center;
+                                edited => { root.edited(self.text); }
+                                accepted => {
+                                    if (root.results.length > 0) {
+                                        root.chosen(0);
+                                    }
+                                }
+                                init => { self.focus(); }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // results
+            Rectangle {
+                vertical-stretch: 1;
+
+                if root.results.length == 0 && root.status != "" : Text {
+                    width: 100%;
+                    height: 100%;
+                    text: root.status;
+                    font-size: 12px;
+                    color: Theme.ink-muted;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+
+                if root.results.length > 0 : ScrollView {
+                    width: 100%;
+                    height: 100%;
+                    viewport-height: root.results.length * 40px + 8px;
+
+                    for item[i] in root.results : row := Rectangle {
+                        x: 8px;
+                        y: i * 40px;
+                        width: parent.width - 16px;
+                        height: 38px;
+                        border-radius: 8px;
+                        background: row-ta.has-hover ? Theme.cinnabar-soft : transparent;
+
+                        row-ta := TouchArea {
+                            clicked => { root.chosen(i); }
+                            mouse-cursor: pointer;
+                        }
+
+                        HorizontalLayout {
+                            padding-left: 10px;
+                            padding-right: 10px;
+                            spacing: 8px;
+                            Text {
+                                text: item.title;
+                                font-size: 13px;
+                                font-weight: 600;
+                                color: Theme.ink;
+                                vertical-alignment: center;
+                                horizontal-stretch: 0;
+                            }
+                            Text {
+                                text: item.subtitle;
+                                font-size: 11px;
+                                color: Theme.ink-secondary;
+                                vertical-alignment: center;
+                                overflow: elide;
+                                horizontal-stretch: 1;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // footer hint
+            Rectangle {
+                height: 30px;
+                Rectangle {
+                    y: 0;
+                    height: 1px;
+                    width: 100%;
+                    background: Theme.paper-divider;
+                }
+                Text {
+                    x: 16px;
+                    width: parent.width - 32px;
+                    height: 100%;
+                    text: root.hint;
+                    font-size: 10.5px;
+                    color: Theme.ink-muted;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+            }
+        }
     }
 }

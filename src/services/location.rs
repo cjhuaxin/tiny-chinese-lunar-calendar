@@ -1,7 +1,7 @@
 #[cfg(target_os = "macos")]
 mod macos {
     use std::cell::RefCell;
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
     use objc2::rc::Retained;
     use objc2::runtime::{NSObjectProtocol, ProtocolObject};
@@ -21,6 +21,10 @@ mod macos {
     /// Last-known fixes older than this are ignored; they may predate a
     /// commute and would otherwise short-circuit a fresh location request.
     const MAX_FIX_AGE_SECS: f64 = 10.0 * 60.0;
+    /// After a failed request, skip CoreLocation for this long so reopening
+    /// the popover shows the fallback location at once instead of waiting
+    /// out another timeout.
+    const FAILURE_BACKOFF: Duration = Duration::from_secs(10 * 60);
 
     thread_local! {
         static PENDING_CALLBACK: RefCell<Option<Box<dyn FnOnce(LocationResult) + Send>>> =
@@ -31,11 +35,13 @@ mod macos {
             const { RefCell::new(None) };
         static REQUEST_IN_FLIGHT: RefCell<bool> = const { RefCell::new(false) };
         static LOCATION_ATTEMPTS: RefCell<u32> = const { RefCell::new(0) };
+        static LAST_FAILURE: RefCell<Option<Instant>> = const { RefCell::new(None) };
     }
 
     fn finish(result: LocationResult) {
         REQUEST_IN_FLIGHT.with(|cell| *cell.borrow_mut() = false);
         LOCATION_ATTEMPTS.with(|cell| *cell.borrow_mut() = 0);
+        LAST_FAILURE.with(|cell| *cell.borrow_mut() = result.is_err().then(Instant::now));
         PENDING_CALLBACK.with(|cell| {
             if let Some(callback) = cell.borrow_mut().take() {
                 callback(result);
@@ -62,7 +68,14 @@ mod macos {
     // CoreLocation fixes), so a long-running tray process re-locates when
     // the user may have moved (e.g. home → office).
     fn cached_coords() -> Option<(f64, f64)> {
-        weather::cached_coordinates()
+        weather::cached_precise_coordinates()
+    }
+
+    fn failed_recently() -> bool {
+        LAST_FAILURE.with(|cell| {
+            cell.borrow()
+                .is_some_and(|at| at.elapsed() < FAILURE_BACKOFF)
+        })
     }
 
     fn current_authorization_status(manager: &CLLocationManager) -> CLAuthorizationStatus {
@@ -285,6 +298,11 @@ mod macos {
 
         if let Some(coords) = cached_coords() {
             callback(Ok(coords));
+            return;
+        }
+
+        if failed_recently() {
+            callback(Err("最近定位失败".to_string()));
             return;
         }
 

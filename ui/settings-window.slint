@@ -1,5 +1,33 @@
 import { Theme } from "theme.slint";
 import { ScrollView } from "std-widgets.slint";
+import { LocationCandidate, LocationPicker } from "components.slint";
+
+component LinkButton inherits Rectangle {
+    in property <string> text;
+    callback clicked;
+
+    horizontal-stretch: 0;
+    border-radius: 5px;
+    background: ta.has-hover ? Theme.cinnabar-soft : transparent;
+
+    HorizontalLayout {
+        padding-left: 6px;
+        padding-right: 6px;
+        padding-top: 1px;
+        padding-bottom: 1px;
+        Text {
+            text: root.text;
+            font-size: 13px;
+            color: Theme.cinnabar;
+            vertical-alignment: center;
+        }
+    }
+
+    ta := TouchArea {
+        clicked => { root.clicked(); }
+        mouse-cursor: pointer;
+    }
+}
 
 component CheckBox16 inherits Rectangle {
     in property <bool> checked;
@@ -127,10 +155,27 @@ export component SettingsWindow inherits Window {
     in-out property <bool> draft-priority-intl;
     // 5 | 15 | 30 minutes before auto-returning to today
     in-out property <int> draft-auto-return-minutes: 5;
+    // "" => not set yet
+    in-out property <string> draft-default-location-name;
+    in-out property <bool> draft-default-location-auto;
+    in-out property <int> draft-network-count;
+    property <string> default-location-label:
+        root.draft-default-location-name == "" ? "未设置"
+        : root.draft-default-location-auto ? root.draft-default-location-name + "（自动）"
+        : root.draft-default-location-name;
+
+    in-out property <bool> location-picker-open: false;
+    in-out property <string> location-query: "";
+    in property <[LocationCandidate]> location-results;
+    in property <string> location-status: "";
 
     callback save();
     callback cancel();
     callback start-drag();
+    callback change-default-location();
+    callback clear-network-locations();
+    callback location-query-edited(string);
+    callback location-chosen(int);
 
     Rectangle {
         border-radius: Theme.radius-shell;
@@ -277,6 +322,42 @@ export component SettingsWindow inherits Window {
                                 color: Theme.ink-muted;
                                 wrap: word-wrap;
                             }
+                            Rectangle { height: 1px; background: Theme.paper-border; }
+                            HorizontalLayout {
+                                spacing: 4px;
+                                Text {
+                                    text: "默认城市：" + root.default-location-label;
+                                    font-size: 14px;
+                                    color: Theme.ink;
+                                    vertical-alignment: center;
+                                    overflow: elide;
+                                    horizontal-stretch: 1;
+                                }
+                                LinkButton {
+                                    text: "更改";
+                                    clicked => { root.change-default-location(); }
+                                }
+                            }
+                            if root.draft-network-count > 0 : HorizontalLayout {
+                                spacing: 4px;
+                                Text {
+                                    text: "已记住 " + root.draft-network-count + " 个网络位置";
+                                    font-size: 14px;
+                                    color: Theme.ink;
+                                    vertical-alignment: center;
+                                    horizontal-stretch: 1;
+                                }
+                                LinkButton {
+                                    text: "清除";
+                                    clicked => { root.clear-network-locations(); }
+                                }
+                            }
+                            Text {
+                                text: "优先使用系统精确定位，无法定位时才使用以上位置";
+                                font-size: 12px;
+                                color: Theme.ink-muted;
+                                wrap: word-wrap;
+                            }
                         }
                     }
                     Rectangle { height: 8px; }
@@ -394,6 +475,18 @@ export component SettingsWindow inherits Window {
                 }
             }
         }
+        }
+
+        if root.location-picker-open : LocationPicker {
+            heading: "默认城市";
+            placeholder: "搜索城市，如：深圳";
+            hint: "无法精确定位、且当前网络未设置位置时使用";
+            query <=> root.location-query;
+            results: root.location-results;
+            status: root.location-status;
+            edited(text) => { root.location-query-edited(text); }
+            chosen(index) => { root.location-chosen(index); }
+            close => { root.location-picker-open = false; }
         }
     }
 }

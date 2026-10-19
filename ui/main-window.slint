@@ -2,6 +2,7 @@ import { Theme } from "theme.slint";
 import {
     DayCellData, WeekdayLabel, DayCellView, PinButton, TodayButton,
     WeatherBadge, FestivalMoreBadge, InsightStrip, AlertLevelPill, WarningDetailItem,
+    LocationCandidate, LocationTip, LocationPicker,
 } from "components.slint";
 import { ScrollView } from "std-widgets.slint";
 
@@ -48,6 +49,16 @@ export component MainWindow inherits Window {
     in property <[WarningDetailItem]> warning-details;
     in property <string> warning-source: "";
 
+    // ─── weather location ───
+    in property <bool> location-tip-visible: false;
+    in property <string> location-tip-text: "";
+    in-out property <bool> location-picker-open: false;
+    in-out property <string> location-query: "";
+    in property <[LocationCandidate]> location-results;
+    in property <string> location-status: "";
+    // The warning strip owns the slot when both want it.
+    property <bool> show-location-tip: root.location-tip-visible && !root.insight-visible;
+
     // ─── month grid ───
     in property <string> year-text;
     in property <string> month-name;
@@ -70,6 +81,10 @@ export component MainWindow inherits Window {
     callback confirm-year-month(int, int);
     callback start-drag();
     callback open-warning-detail();
+    callback open-location-picker();
+    callback dismiss-location-tip();
+    callback location-query-edited(string);
+    callback location-chosen(int);
 
     shell := Rectangle {
         border-radius: Theme.radius-shell;
@@ -228,6 +243,7 @@ export component MainWindow inherits Window {
                             icon-kind: root.weather-icon-kind;
                             tscale: root.weather-tscale;
                             content-w: root.weather-content-w;
+                            city-clicked => { root.open-location-picker(); }
                         }
 
                         // actions column
@@ -253,8 +269,8 @@ export component MainWindow inherits Window {
                     }
                 }
 
-                // bottom divider (hidden when the insight strip takes over)
-                if !root.insight-visible : Rectangle {
+                // bottom divider (hidden when a strip below takes over)
+                if !root.insight-visible && !root.show-location-tip : Rectangle {
                     y: parent.height - 1px;
                     height: 1px;
                     width: 100%;
@@ -269,6 +285,13 @@ export component MainWindow inherits Window {
                 subtitle: root.insight-subtitle;
                 more: root.insight-more;
                 clicked => { root.open-warning-detail(); }
+            }
+
+            LocationTip {
+                show: root.show-location-tip;
+                text: root.location-tip-text;
+                action => { root.open-location-picker(); }
+                dismiss => { root.dismiss-location-tip(); }
             }
 
             // ─── Calendar body ───
@@ -677,6 +700,16 @@ export component MainWindow inherits Window {
                     }
                 }
             }
+        }
+
+        // ─── Weather location picker overlay ───
+        if root.location-picker-open : LocationPicker {
+            query <=> root.location-query;
+            results: root.location-results;
+            status: root.location-status;
+            edited(text) => { root.location-query-edited(text); }
+            chosen(index) => { root.location-chosen(index); }
+            close => { root.location-picker-open = false; }
         }
     }
 }

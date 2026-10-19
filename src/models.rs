@@ -27,6 +27,22 @@ pub struct AppSettings {
     /// Minutes of inactivity before auto-returning to today (5, 15, or 30).
     #[serde(default = "default_auto_return_minutes")]
     pub auto_return_minutes: u8,
+    /// City-level weather location used when neither CoreLocation nor a
+    /// network-bound location is available.
+    #[serde(default)]
+    pub default_location: Option<SavedLocation>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedLocation {
+    pub name: String,
+    pub lat: f64,
+    pub lon: f64,
+    /// Written automatically from the first precise fix rather than chosen
+    /// by the user.
+    #[serde(default)]
+    pub auto: bool,
 }
 
 fn default_show_international_festivals() -> bool {
@@ -60,6 +76,7 @@ impl Default for AppSettings {
             show_weather_warning: true,
             warning_notifications: true,
             auto_return_minutes: default_auto_return_minutes(),
+            default_location: None,
         }
     }
 }
@@ -141,4 +158,36 @@ pub struct DayDetail {
     pub festivals: Vec<String>,
     pub humanized_date: String,
     pub alternate_humanized: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn legacy_settings_have_no_default_location() {
+        let content = r#"{"sundayFirst":false,"showInternationalFestivals":true,"launchAtLogin":false,
+            "calendarLabelPriority":"solarTerm","showWeather":true,"showWeatherWarning":true,
+            "warningNotifications":true,"autoReturnMinutes":15}"#;
+        let settings: AppSettings = serde_json::from_str(content).unwrap();
+        assert_eq!(settings.default_location, None);
+        assert_eq!(settings.auto_return_minutes, 15);
+    }
+
+    #[test]
+    fn default_location_round_trips() {
+        let settings = AppSettings {
+            default_location: Some(SavedLocation {
+                name: "深圳".into(),
+                lat: 22.54,
+                lon: 114.05,
+                auto: true,
+            }),
+            ..AppSettings::default()
+        };
+        let json = serde_json::to_string(&settings).unwrap();
+        assert!(json.contains(r#""defaultLocation":{"name":"深圳""#));
+        let parsed: AppSettings = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, settings);
+    }
 }

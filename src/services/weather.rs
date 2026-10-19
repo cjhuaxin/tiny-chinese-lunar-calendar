@@ -8,7 +8,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 
-use crate::models::{DailyForecast, WeatherSnapshot};
+use crate::models::{DailyForecast, SavedLocation, WeatherSnapshot};
+use crate::services::network_location::{self, Fingerprint, NetworkLocation};
 use crate::services::qweather_jwt;
 use crate::settings::app_data_dir;
 
@@ -42,9 +43,11 @@ pub(crate) fn qweather_configured() -> bool {
 #[serde(rename_all = "lowercase")]
 pub enum CoordSource {
     CoreLocation,
-    /// A past CoreLocation fix reused because the machine is on the same
-    /// network (matched by gateway MAC). Precise, but the fix is not fresh.
+    /// A location remembered for the current network (matched by router
+    /// MAC or SSID): a past CoreLocation fix or a hand-picked location.
     Network,
+    /// The user's city-level default location from settings.
+    Default,
     Ip,
 }
 
@@ -54,6 +57,7 @@ pub enum CoordSource {
 // with CoreLocation regularly in case the network moved.
 const COORD_TTL_CORELOCATION_SECS: u64 = 60 * 60;
 const COORD_TTL_NETWORK_SECS: u64 = 30 * 60;
+const COORD_TTL_DEFAULT_SECS: u64 = 10 * 60;
 const COORD_TTL_IP_SECS: u64 = 10 * 60;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -167,22 +171,49 @@ fn save_coord_cache(lat: f64, lon: f64, source: CoordSource) -> Result<(), Strin
     fs::write(path, content).map_err(|e| e.to_string())
 }
 
-/// Returns cached coordinates if they are still fresh for their source.
-pub fn cached_coordinates() -> Option<(f64, f64)> {
+fn fresh_coord_cache() -> Option<CoordCacheFile> {
     let cache = load_coord_cache()?;
     let ttl = match cache.source {
         CoordSource::CoreLocation => COORD_TTL_CORELOCATION_SECS,
         CoordSource::Network => COORD_TTL_NETWORK_SECS,
+        CoordSource::Default => COORD_TTL_DEFAULT_SECS,
         CoordSource::Ip => COORD_TTL_IP_SECS,
     };
     if now_secs().saturating_sub(cache.fetched_at) > ttl {
         return None;
     }
-    Some((cache.lat, cache.lon))
+    Some(cache)
+}
+
+/// Returns cached coordinates if they are still fresh for their source.
+pub fn cached_coordinates() -> Option<(f64, f64)> {
+    fresh_coord_cache().map(|cache| (cache.lat, cache.lon))
+}
+
+/// A fresh CoreLocation fix only. Fallback sources must not short-circuit a
+/// new precise location request.
+pub fn cached_precise_coordinates() -> Option<(f64, f64)> {
+    fresh_coord_cache()
+        .filter(|cache| cache.source == CoordSource::CoreLocation)
+        .map(|cache| (cache.lat, cache.lon))
 }
 
 pub fn store_coordinates(lat: f64, lon: f64, source: CoordSource) {
     let _ = save_coord_cache(lat, lon, source);
+}
+
+/// Drops a cached fallback coordinate (network / default / IP) so the next
+/// resolution picks up a location the user just changed.
+pub fn clear_fallback_coordinates() {
+    let Some(cache) = load_coord_cache() else {
+        return;
+    };
+    if cache.source == CoordSource::CoreLocation {
+        return;
+    }
+    if let Ok(path) = coord_cache_path() {
+        let _ = fs::remove_file(path);
+    }
 }
 
 fn snapshot_has_daily_range(snapshot: &WeatherSnapshot) -> bool {
@@ -449,22 +480,112 @@ pub fn fetch_ip_coordinates() -> Result<(f64, f64), String> {
     }
 }
 
-/// Disk cache first, then the network-fingerprint map (precise coordinates
-/// recorded on this network by an earlier CoreLocation fix), then IP
-/// geolocation (city-level) as a last resort. IP databases cannot tell
-/// districts apart within a city, so a past precise fix on the same network
-/// always wins over them.
-pub fn resolve_coordinates_fallback() -> Option<(f64, f64)> {
-    if let Some(coords) = cached_coordinates() {
-        return Some(coords);
+/// Where a non-CoreLocation coordinate came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FallbackKind {
+    /// Remembered for the current network; as good as a precise fix.
+    Network,
+    /// The city-level default from settings.
+    Default,
+    /// Public-IP geolocation; city-level at best.
+    Ip,
+}
+
+impl FallbackKind {
+    /// Whether the "cannot locate precisely" tip should be offered.
+    pub fn is_approximate(self) -> bool {
+        !matches!(self, FallbackKind::Network)
     }
-    if let Some(coords) = crate::services::network_location::lookup_current_network() {
-        store_coordinates(coords.0, coords.1, CoordSource::Network);
-        return Some(coords);
+}
+
+#[derive(Debug, Clone)]
+pub struct FallbackLocation {
+    pub lat: f64,
+    pub lon: f64,
+    pub kind: FallbackKind,
+    /// Display name to show instead of the reverse-geocoded one.
+    pub name: Option<String>,
+    pub fingerprint: Fingerprint,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct PickedFallback {
+    lat: f64,
+    lon: f64,
+    kind: FallbackKind,
+    name: Option<String>,
+}
+
+/// Fallback priority: a location remembered for this network, then the
+/// default city, then IP geolocation (only queried when nothing else is
+/// set). IP databases cannot tell districts apart within a city, so anything
+/// the user or an earlier precise fix provided wins over them.
+fn pick_fallback(
+    network: Option<NetworkLocation>,
+    default: Option<&SavedLocation>,
+    ip: impl FnOnce() -> Option<(f64, f64)>,
+) -> Option<PickedFallback> {
+    if let Some(entry) = network {
+        return Some(PickedFallback {
+            lat: entry.lat,
+            lon: entry.lon,
+            kind: FallbackKind::Network,
+            name: (!entry.name.is_empty()).then_some(entry.name),
+        });
     }
-    let coords = fetch_ip_coordinates().ok()?;
+    if let Some(default) = default {
+        return Some(PickedFallback {
+            lat: default.lat,
+            lon: default.lon,
+            kind: FallbackKind::Default,
+            name: (!default.name.is_empty()).then(|| default.name.clone()),
+        });
+    }
+    let (lat, lon) = ip()?;
+    Some(PickedFallback {
+        lat,
+        lon,
+        kind: FallbackKind::Ip,
+        name: None,
+    })
+}
+
+fn ip_coordinates_cached_or_fetch() -> Option<(f64, f64)> {
+    if let Some(cache) = fresh_coord_cache().filter(|cache| cache.source == CoordSource::Ip) {
+        return Some((cache.lat, cache.lon));
+    }
+    let coords = fetch_ip_coordinates()
+        .map_err(|err| eprintln!("IP geolocation failed: {err}"))
+        .ok()?;
     store_coordinates(coords.0, coords.1, CoordSource::Ip);
     Some(coords)
+}
+
+/// Resolves coordinates when CoreLocation is unavailable. Runs external
+/// commands and may hit the network; call it off the main thread.
+pub fn resolve_coordinates_fallback(default: Option<&SavedLocation>) -> Option<FallbackLocation> {
+    let fingerprint = network_location::current_fingerprint();
+    let network = network_location::lookup(&fingerprint);
+    let picked = pick_fallback(network, default, ip_coordinates_cached_or_fetch)?;
+    match picked.kind {
+        FallbackKind::Network => store_coordinates(picked.lat, picked.lon, CoordSource::Network),
+        FallbackKind::Default => store_coordinates(picked.lat, picked.lon, CoordSource::Default),
+        FallbackKind::Ip => {}
+    }
+    Some(FallbackLocation {
+        lat: picked.lat,
+        lon: picked.lon,
+        kind: picked.kind,
+        name: picked.name,
+        fingerprint,
+    })
+}
+
+/// Any fresh cached coordinate, else a full fallback resolution. For
+/// background refreshes that must not trigger a CoreLocation prompt.
+pub fn background_coordinates(default: Option<&SavedLocation>) -> Option<(f64, f64)> {
+    cached_coordinates()
+        .or_else(|| resolve_coordinates_fallback(default).map(|loc| (loc.lat, loc.lon)))
 }
 
 pub(crate) fn curl_get(url: &str) -> Result<Vec<u8>, String> {
@@ -567,21 +688,18 @@ fn ensure_forecast(lat: f64, lon: f64) -> (String, String) {
 
 /// After the local calendar day changes, in-memory forecast may still list
 /// yesterday. Refresh from disk/network when the pruned view no longer matches.
-pub fn refresh_forecast_after_day_change(on_done: impl Fn() + Send + 'static) {
-    if daily_forecasts().is_some() {
-        on_done();
-        return;
-    }
-    let Some((lat, lon)) = cached_coordinates().or_else(resolve_coordinates_fallback) else {
-        on_done();
-        return;
-    };
-    if !qweather_configured() {
+pub fn refresh_forecast_after_day_change(
+    default: Option<SavedLocation>,
+    on_done: impl Fn() + Send + 'static,
+) {
+    if daily_forecasts().is_some() || !qweather_configured() {
         on_done();
         return;
     }
     std::thread::spawn(move || {
-        let _ = ensure_forecast(lat, lon);
+        if let Some((lat, lon)) = background_coordinates(default.as_ref()) {
+            let _ = ensure_forecast(lat, lon);
+        }
         on_done();
     });
 }
@@ -658,29 +776,161 @@ fn city_name(lat: f64, lon: f64) -> String {
 }
 
 fn fetch_city_name(lat: f64, lon: f64) -> Result<String, String> {
-    let location = format!("{lon:.2},{lat:.2}");
-    let url = format!(
-        "https://{}/geo/v2/city/lookup?location={}&lang=zh&number=1",
-        QWEATHER_API_HOST, location
-    );
-    let body = curl_get(&url)?;
-    let json: serde_json::Value = serde_json::from_slice(&body).map_err(|e| e.to_string())?;
+    Ok(reverse_lookup(lat, lon)?
+        .map(|candidate| candidate.name)
+        .unwrap_or_default())
+}
 
+/// One GeoAPI result: a district/county or a city.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CityCandidate {
+    /// "南山" for a district, "深圳" for the city itself.
+    pub name: String,
+    /// Prefecture-level city ("深圳").
+    pub adm2: String,
+    /// Province ("广东省").
+    pub adm1: String,
+    pub lat: f64,
+    pub lon: f64,
+}
+
+impl CityCandidate {
+    pub fn is_city_level(&self) -> bool {
+        self.adm2.is_empty() || self.name == self.adm2
+    }
+
+    /// "深圳 · 广东省" for a city, "深圳 · 广东省" under "南山" for a district.
+    pub fn subtitle(&self) -> String {
+        let mut parts: Vec<&str> = Vec::new();
+        if !self.is_city_level() {
+            parts.push(&self.adm2);
+        }
+        if !self.adm1.is_empty() && self.adm1 != self.adm2 && self.adm1 != self.name {
+            parts.push(&self.adm1);
+        }
+        parts.join(" · ")
+    }
+}
+
+fn percent_encode(value: &str) -> String {
+    let mut out = String::with_capacity(value.len() * 3);
+    for byte in value.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(byte as char)
+            }
+            _ => out.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    out
+}
+
+fn parse_geo_locations(body: &[u8]) -> Result<Vec<CityCandidate>, String> {
+    let json: serde_json::Value = serde_json::from_slice(body).map_err(|e| e.to_string())?;
     let code = json.get("code").and_then(|v| v.as_str()).unwrap_or("");
+    // 404: no match for the query.
+    if code == "404" {
+        return Ok(Vec::new());
+    }
     if code != "200" {
         return Err(format!("GeoAPI returned code {code}"));
     }
+    let Some(items) = json.get("location").and_then(|v| v.as_array()) else {
+        return Ok(Vec::new());
+    };
+    Ok(items
+        .iter()
+        .filter_map(|item| {
+            let text = |key: &str| {
+                item.get(key)
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string()
+            };
+            let number = |key: &str| text(key).parse::<f64>().ok();
+            let name = text("name");
+            if name.is_empty() {
+                return None;
+            }
+            Some(CityCandidate {
+                name,
+                adm2: text("adm2"),
+                adm1: text("adm1"),
+                lat: number("lat")?,
+                lon: number("lon")?,
+            })
+        })
+        .collect())
+}
 
-    let name = json
-        .get("location")
-        .and_then(|v| v.as_array())
-        .and_then(|arr| arr.first())
-        .and_then(|loc| loc.get("name").or_else(|| loc.get("adm2")))
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
+fn geo_lookup(location: &str, extra: &str) -> Result<Vec<CityCandidate>, String> {
+    let url = format!(
+        "https://{}/geo/v2/city/lookup?location={}&lang=zh{}",
+        QWEATHER_API_HOST, location, extra
+    );
+    parse_geo_locations(&curl_get(&url)?)
+}
 
-    Ok(name)
+/// Cities and districts matching a free-text query ("南山", "shenzhen").
+pub fn search_cities(query: &str) -> Result<Vec<CityCandidate>, String> {
+    let query = query.trim();
+    if query.is_empty() {
+        return Ok(Vec::new());
+    }
+    if !qweather_configured() {
+        return Err("天气服务未配置".to_string());
+    }
+    geo_lookup(&percent_encode(query), "&number=10")
+}
+
+/// The district/county containing a coordinate.
+pub fn reverse_lookup(lat: f64, lon: f64) -> Result<Option<CityCandidate>, String> {
+    let location = format!("{lon:.2},{lat:.2}");
+    Ok(geo_lookup(&location, "&number=1")?.into_iter().next())
+}
+
+/// The prefecture-level city containing `candidate`, as a default location.
+/// Falls back to the candidate's own coordinates when the city itself
+/// cannot be looked up.
+pub fn city_level_location(candidate: &CityCandidate, auto: bool) -> SavedLocation {
+    let city_name = if candidate.adm2.is_empty() {
+        candidate.name.clone()
+    } else {
+        candidate.adm2.clone()
+    };
+    let city = if candidate.is_city_level() {
+        Some(candidate.clone())
+    } else {
+        let adm = if candidate.adm1.is_empty() {
+            String::new()
+        } else {
+            format!("&adm={}", percent_encode(&candidate.adm1))
+        };
+        geo_lookup(&percent_encode(&city_name), &format!("{adm}&number=5"))
+            .map_err(|err| eprintln!("GeoAPI city lookup failed: {err}"))
+            .ok()
+            .and_then(|items| items.into_iter().find(|c| c.name == city_name))
+    };
+    let (lat, lon) = city
+        .map(|c| (c.lat, c.lon))
+        .unwrap_or((candidate.lat, candidate.lon));
+    SavedLocation {
+        name: city_name,
+        lat,
+        lon,
+        auto,
+    }
+}
+
+/// City-level default derived from a precise fix (first-run auto setup).
+pub fn default_location_from_fix(lat: f64, lon: f64) -> Option<SavedLocation> {
+    if !qweather_configured() {
+        return None;
+    }
+    let candidate = reverse_lookup(lat, lon)
+        .map_err(|err| eprintln!("GeoAPI reverse lookup failed: {err}"))
+        .ok()??;
+    Some(city_level_location(&candidate, true))
 }
 
 fn unavailable_snapshot(message: &str) -> WeatherSnapshot {
@@ -715,11 +965,24 @@ pub fn set_loading() {
     });
 }
 
+fn with_city(mut snapshot: WeatherSnapshot, city: Option<&str>) -> WeatherSnapshot {
+    if let Some(city) = city {
+        snapshot.city = city.to_string();
+    }
+    snapshot
+}
+
 /// Loads weather from cache or network. `on_refreshed` runs on a background
-/// thread after a successful network fetch.
-pub fn ensure_weather(lat: f64, lon: f64, on_refreshed: impl Fn() + Send + 'static) {
+/// thread after a successful network fetch. `city` overrides the
+/// reverse-geocoded name (for hand-picked or default locations).
+pub fn ensure_weather(
+    lat: f64,
+    lon: f64,
+    city: Option<String>,
+    on_refreshed: impl Fn() + Send + 'static,
+) {
     if let Some(cached) = load_weather_cache(lat, lon) {
-        set_memory(cached);
+        set_memory(with_city(cached, city.as_deref()));
         if let Some(days) = load_forecast_cache(lat, lon) {
             set_forecast_memory(days);
             on_refreshed();
@@ -751,6 +1014,7 @@ pub fn ensure_weather(lat: f64, lon: f64, on_refreshed: impl Fn() + Send + 'stat
 
     std::thread::spawn(move || match fetch_weather_now(lat, lon) {
         Ok(snapshot) => {
+            let snapshot = with_city(snapshot, city.as_deref());
             let _ = save_weather_cache(lat, lon, &snapshot);
             set_memory(snapshot);
             on_refreshed();
@@ -758,7 +1022,7 @@ pub fn ensure_weather(lat: f64, lon: f64, on_refreshed: impl Fn() + Send + 'stat
         Err(err) => {
             eprintln!("QWeather fetch failed: {err}");
             if let Some(cached) = load_stale_weather_cache(lat, lon) {
-                set_memory(cached);
+                set_memory(with_city(cached, city.as_deref()));
                 on_refreshed();
             } else {
                 set_memory(unavailable_snapshot(&err));
@@ -912,6 +1176,105 @@ mod tests {
         let body = br#"{"region":"Guangdong","city":"Shenzhen"}"#;
         assert!(parse_ip_sb_coords(body).is_err());
     }
+
+    fn network(name: &str) -> NetworkLocation {
+        NetworkLocation {
+            lat: 22.53,
+            lon: 113.93,
+            name: name.to_string(),
+            manual: !name.is_empty(),
+        }
+    }
+
+    fn shenzhen() -> SavedLocation {
+        SavedLocation {
+            name: "深圳".to_string(),
+            lat: 22.54,
+            lon: 114.05,
+            auto: true,
+        }
+    }
+
+    #[test]
+    fn fallback_prefers_network_and_skips_ip() {
+        let picked = pick_fallback(Some(network("南山")), Some(&shenzhen()), || {
+            panic!("IP lookup must not run when a network location exists")
+        })
+        .unwrap();
+        assert_eq!(picked.kind, FallbackKind::Network);
+        assert_eq!(picked.name.as_deref(), Some("南山"));
+        assert!(!picked.kind.is_approximate());
+    }
+
+    #[test]
+    fn fallback_learned_network_entry_has_no_name_override() {
+        let picked = pick_fallback(Some(network("")), None, || None).unwrap();
+        assert_eq!(picked.kind, FallbackKind::Network);
+        assert_eq!(picked.name, None);
+    }
+
+    #[test]
+    fn fallback_uses_default_before_ip() {
+        let picked = pick_fallback(None, Some(&shenzhen()), || {
+            panic!("IP lookup must not run when a default city is set")
+        })
+        .unwrap();
+        assert_eq!(picked.kind, FallbackKind::Default);
+        assert_eq!((picked.lat, picked.lon), (22.54, 114.05));
+        assert_eq!(picked.name.as_deref(), Some("深圳"));
+        assert!(picked.kind.is_approximate());
+    }
+
+    #[test]
+    fn fallback_ip_is_last_resort() {
+        let picked = pick_fallback(None, None, || Some((39.9, 116.4))).unwrap();
+        assert_eq!(picked.kind, FallbackKind::Ip);
+        assert_eq!(picked.name, None);
+        assert!(pick_fallback(None, None, || None).is_none());
+    }
+
+    #[test]
+    fn parse_geo_search_results() {
+        let body = r#"{"code":"200","location":[
+            {"name":"南山","id":"101280604","lat":"22.53122","lon":"113.92942","adm2":"深圳","adm1":"广东省"},
+            {"name":"深圳","id":"101280601","lat":"22.54700","lon":"114.08594","adm2":"深圳","adm1":"广东省"},
+            {"name":"","lat":"1","lon":"2"},
+            {"name":"坏数据","lat":"x","lon":"2"}
+        ]}"#;
+        let items = parse_geo_locations(body.as_bytes()).unwrap();
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].name, "南山");
+        assert!(!items[0].is_city_level());
+        assert_eq!(items[0].subtitle(), "深圳 · 广东省");
+        assert!((items[0].lat - 22.53122).abs() < 1e-6);
+        assert!(items[1].is_city_level());
+        assert_eq!(items[1].subtitle(), "广东省");
+    }
+
+    #[test]
+    fn parse_geo_no_match_is_empty() {
+        let items = parse_geo_locations(br#"{"code":"404"}"#).unwrap();
+        assert!(items.is_empty());
+        assert!(parse_geo_locations(br#"{"code":"401"}"#).is_err());
+    }
+
+    #[test]
+    fn municipality_subtitle_skips_repeats() {
+        let item = CityCandidate {
+            name: "北京".into(),
+            adm2: "北京".into(),
+            adm1: "北京市".into(),
+            lat: 39.9,
+            lon: 116.4,
+        };
+        assert_eq!(item.subtitle(), "北京市");
+    }
+
+    #[test]
+    fn percent_encodes_utf8_queries() {
+        assert_eq!(percent_encode("南山"), "%E5%8D%97%E5%B1%B1");
+        assert_eq!(percent_encode("shen zhen"), "shen%20zhen");
+    }
 }
 
 #[cfg(test)]
@@ -931,5 +1294,33 @@ mod live_tests {
         let snap = result.unwrap();
         assert!(snap.available);
         assert!(!snap.temp.is_empty());
+    }
+
+    /// Run with: cargo test live_geo_search -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn live_geo_search() {
+        let items = search_cities("南山").expect("search failed");
+        eprintln!("search results: {items:#?}");
+        assert!(items.iter().any(|c| c.name == "南山" && c.adm2 == "深圳"));
+
+        let district = items.iter().find(|c| c.adm2 == "深圳").unwrap();
+        let city = city_level_location(district, false);
+        eprintln!("city level: {city:?}");
+        assert_eq!(city.name, "深圳");
+
+        let auto = default_location_from_fix(22.53, 113.93).expect("reverse lookup failed");
+        eprintln!("auto default: {auto:?}");
+        assert_eq!(auto.name, "深圳");
+        assert!(auto.auto);
+    }
+
+    /// Run with: cargo test live_network_fingerprint -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn live_network_fingerprint() {
+        let fingerprint = network_location::current_fingerprint();
+        eprintln!("fingerprint: {fingerprint:?}");
+        assert!(fingerprint.router_mac.is_some() || fingerprint.ssid.is_some());
     }
 }
