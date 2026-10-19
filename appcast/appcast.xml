@@ -2,14 +2,14 @@
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
     <channel>
         <title>小小万年历</title>
-        <link>https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/releases/tag/v0.3.14</link>
+        <link>https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/releases/tag/v0.3.15</link>
         <description>Most recent updates to 小小万年历</description>
         <language>zh-cn</language>
         <item>
-            <title>Version 0.3.14</title>
-            <link>https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/releases/tag/v0.3.14</link>
-            <sparkle:version>293</sparkle:version>
-            <sparkle:shortVersionString>0.3.14</sparkle:shortVersionString>
+            <title>Version 0.3.15</title>
+            <link>https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/releases/tag/v0.3.15</link>
+            <sparkle:version>297</sparkle:version>
+            <sparkle:shortVersionString>0.3.15</sparkle:shortVersionString>
             <description><![CDATA[<!DOCTYPE html><html><head><meta charset="utf-8"><style>
 body {
     font-family: -apple-system, "PingFang SC", sans-serif;
@@ -40,27 +40,31 @@ hr { border: none; border-top: 1px solid rgba(61, 46, 31, 0.15); margin: 14px 0;
     hr { border-top-color: rgba(232, 226, 216, 0.2); }
 }
 </style></head><body>
-<h2>✨ 小小万年历 0.3.14</h2>
-<p>修复升级到较新 macOS 后，左键点击菜单栏图标打不开日历的问题。</p>
+<h2>✨ 小小万年历 0.3.15</h2>
+<p>天气位置更准、更省心：拿不到精确定位时，不再只能依赖不准的 IP 定位。</p>
 <hr>
-<h3>🖱️ 菜单栏点击</h3>
+<h3>📍 天气位置</h3>
 <ul>
-<li>修复 <strong>macOS 26/27</strong> 上左键点击菜单栏图标只会弹出右键菜单、日历窗口不再出现：系统现在只要绑定了菜单，就会拦截每一次点击</li>
-<li>左键重新用来打开 / 关闭日历，右键（以及 Control+左键）仍弹出设置菜单</li>
+<li><strong>默认城市</strong>：设置 → 显示天气 → 天气位置，可设置无法精确定位时使用的城市；首次精确定位成功后会自动填好</li>
+<li><strong>按网络记住位置</strong>：点天气卡片上的城市名即可搜索并选择位置（可精确到区县，如「南山」），之后连上同一个网络会自动沿用</li>
+<li><strong>精确定位优先</strong>：系统定位可用时始终以它为准；其次是当前网络记住的位置，然后是默认城市，最后才是 IP 定位</li>
+<li>无法精确定位时，顶部会出现一条可关闭的提示，一键设置位置；关闭后同一网络不再提示</li>
+<li>开着 VPN（Clash、Tailscale 等）也能正确识别所在网络</li>
+<li>精确定位失败后，10 分钟内重新打开日历会直接显示备用位置的天气，不再每次都等待定位超时</li>
 </ul>
 <hr>
 <h3>📦 安装与升级</h3>
 <ul>
-<li><strong>0.3.x 用户</strong>：菜单栏 → 检查更新，或下载 <strong>xiaoxiao-wannianli-0.3.14.dmg</strong></li>
+<li><strong>0.3.x 用户</strong>：菜单栏 → 检查更新，或下载 <strong>xiaoxiao-wannianli-0.3.15.dmg</strong></li>
 </ul>
 <hr>
-<p><strong>完整变更</strong>: <a href="https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/compare/v0.3.13...v0.3.14">https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/compare/v0.3.13...v0.3.14</a></p>
+<p><strong>完整变更</strong>: <a href="https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/compare/v0.3.14...v0.3.15">https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/compare/v0.3.14...v0.3.15</a></p>
 </body></html>]]></description>
-            <pubDate>Tue, 15 Sep 2026 09:18:10 +0000</pubDate>
+            <pubDate>Mon, 19 Oct 2026 07:32:04 +0000</pubDate>
             <enclosure
-                url="https://tclc-updates.cjhuaxin.cc/releases/xiaoxiao-wannianli-0.3.14.zip"
-                sparkle:edSignature="m/cJqo1nIugTY7mm5p+NY2sF79wklg9YJTqTgLjIhw9cvMZ1/o23nhcdiiN0PKnqnnbIEzeDeUE+xWGQCmwAAw=="
-                length="12229244"
+                url="https://tclc-updates.cjhuaxin.cc/releases/xiaoxiao-wannianli-0.3.15.zip"
+                sparkle:edSignature="4nCS4OXQJWxFHHzoWpb6IlBHC4F74oEdQg6J32IFJivDdGH0fH9gfdLCuslr3M9P62yfuZ8/L6LIgNhIu9BfCA=="
+                length="12401828"
                 type="application/octet-stream" />
         </item>
     </channel>
