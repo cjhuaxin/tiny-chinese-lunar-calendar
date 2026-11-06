@@ -234,7 +234,10 @@ fn run_scutil(script: &str) -> Option<String> {
 fn parse_scutil_keys(output: &str) -> Vec<String> {
     output
         .lines()
-        .filter_map(|line| line.split_once(" = ").map(|(_, key)| key.trim().to_string()))
+        .filter_map(|line| {
+            line.split_once(" = ")
+                .map(|(_, key)| key.trim().to_string())
+        })
         .filter(|key| !key.is_empty())
         .collect()
 }
@@ -572,7 +575,8 @@ mod tests {
 
     #[test]
     fn parse_scutil_service_keys() {
-        let output = "  subKey [0] = State:/Network/Service/05F4092C-BA62-4292-89D5-7F8C98FFAEA6/IPv4\n  \
+        let output =
+            "  subKey [0] = State:/Network/Service/05F4092C-BA62-4292-89D5-7F8C98FFAEA6/IPv4\n  \
                       subKey [1] = State:/Network/Service/utun11/IPv4\n";
         assert_eq!(
             parse_scutil_keys(output),
@@ -614,7 +618,11 @@ mod tests {
     #[test]
     fn insert_without_fingerprint_is_rejected() {
         let mut map = NetworkMap::new();
-        assert!(!insert_entry(&mut map, &Fingerprint::default(), entry(1.0, 1, None)));
+        assert!(!insert_entry(
+            &mut map,
+            &Fingerprint::default(),
+            entry(1.0, 1, None)
+        ));
         assert!(map.is_empty());
     }
 }

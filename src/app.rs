@@ -506,7 +506,11 @@ impl App {
                 if let Some(main) = main_weak.upgrade() {
                     main.set_location_tip_visible(false);
                 }
-                let fingerprint = state.location_tip_network.borrow().clone().unwrap_or_default();
+                let fingerprint = state
+                    .location_tip_network
+                    .borrow()
+                    .clone()
+                    .unwrap_or_default();
                 std::thread::spawn(move || network_location::dismiss_tip(&fingerprint));
             });
         }
@@ -521,10 +525,12 @@ impl App {
         let show_warning = settings.show_weather_warning;
         let notify = settings.warning_notifications;
 
+        let request = weather::accept_manual(candidate.lat, candidate.lon);
         weather::set_loading();
         weather::apply_weather_to_window(main);
 
         let main_weak = main.as_weak();
+        let gen = request.gen;
         std::thread::spawn(move || {
             let name = candidate.name.clone();
             if !network_location::bind_current_network(candidate.lat, candidate.lon, &name) {
@@ -538,6 +544,7 @@ impl App {
                 show_warning,
                 notify,
                 Some(name),
+                gen,
             );
 
             if needs_default {
@@ -595,7 +602,12 @@ impl App {
         }
     }
 
-    fn apply_location_results(&self, target: PickerTarget, items: Vec<CityCandidate>, status: &str) {
+    fn apply_location_results(
+        &self,
+        target: PickerTarget,
+        items: Vec<CityCandidate>,
+        status: &str,
+    ) {
         let rows: Vec<LocationCandidate> = items
             .iter()
             .map(|c| match target {
@@ -911,6 +923,7 @@ impl App {
         // wrong frame is ever rendered, so no jump is visible.
         self.state.pos_corrections.set(6);
         let _ = main.show();
+        refresh_holidays();
         self.ensure_weather_for_main(&main);
 
         // Deferred best-effort focus (the winit window is created a tick
@@ -1033,6 +1046,11 @@ impl App {
     /// Fetches location + weather when the calendar popover opens.
     /// Disabled entirely (no location request, no API calls) when the user
     /// turned the weather display off in settings.
+    ///
+    /// A known place (last fix, this network, or the default city) is shown
+    /// immediately. CoreLocation keeps running and only replaces the badge
+    /// when the new fix is actually somewhere else, so a slow GPS lock no
+    /// longer leaves the badge on "定位中..." for ten seconds.
     fn ensure_weather_for_main(self: &Rc<Self>, main: &MainWindow) {
         let settings = self.state.settings.borrow().clone();
         if !settings.show_weather {
@@ -1043,58 +1061,100 @@ impl App {
             return;
         }
 
-        weather::set_loading();
-        weather::apply_weather_to_window(main);
-        // Keep any previously cached strip while the refresh is in flight.
-        apply_insights_ui(main, settings.show_weather_warning);
-
         let main_weak = main.as_weak();
         let show_warning = settings.show_weather_warning;
         let notify = settings.warning_notifications;
         let default = settings.default_location;
+
+        if let Some((lat, lon)) = weather::cached_precise_coordinates() {
+            set_location_tip(&main_weak, None);
+            if default.is_none() {
+                auto_default_from_fix(lat, lon);
+            }
+            paint_cached_or_loading(main, lat, lon, show_warning);
+            let request = weather::begin_precise_pass(lat, lon);
+            fetch_weather_and_insights(
+                lat,
+                lon,
+                main_weak,
+                show_warning,
+                notify,
+                None,
+                request.gen,
+            );
+            return;
+        }
+
+        weather::begin_location_pass();
+        if weather::show_last_cached_weather() {
+            weather::note_cached_weather_shown();
+            weather::apply_weather_to_window(main);
+            apply_insights_ui(main, show_warning);
+        } else {
+            weather::set_loading();
+            weather::apply_weather_to_window(main);
+            apply_insights_ui(main, show_warning);
+        }
+
+        let main_fb = main_weak.clone();
+        let default_fb = default.clone();
+        std::thread::spawn(move || {
+            let found = weather::resolve_coordinates_fallback(default_fb.as_ref());
+            let Some(found) = found else {
+                weather::mark_fallback_finished();
+                if weather::location_failure_ready() {
+                    show_unlocated(&main_fb, "暂时无法定位");
+                }
+                return;
+            };
+            let request = weather::accept_provisional(&found);
+            weather::mark_fallback_finished();
+            if weather::precise_has_failed() {
+                maybe_show_approximate_tip(&main_fb);
+            }
+            if request.fetch {
+                fetch_weather_and_insights(
+                    found.lat,
+                    found.lon,
+                    main_fb,
+                    show_warning,
+                    notify,
+                    found.name,
+                    request.gen,
+                );
+            }
+        });
+
         location::request_coordinates(move |result| match result {
             Ok((lat, lon)) => {
                 set_location_tip(&main_weak, None);
                 if default.is_none() {
                     auto_default_from_fix(lat, lon);
                 }
-                fetch_weather_and_insights(lat, lon, main_weak, show_warning, notify, None);
+                let request = weather::accept_precise(lat, lon);
+                if request.fetch {
+                    fetch_weather_and_insights(
+                        lat,
+                        lon,
+                        main_weak,
+                        show_warning,
+                        notify,
+                        None,
+                        request.gen,
+                    );
+                }
             }
             Err(err) => {
                 eprintln!("location failed: {err}");
-                let main_weak = main_weak.clone();
-                std::thread::spawn(move || {
-                    match weather::resolve_coordinates_fallback(default.as_ref()) {
-                        Some(found) => {
-                            let tip = if found.kind.is_approximate()
-                                && !network_location::tip_dismissed(&found.fingerprint)
-                            {
-                                Some((location_tip_text(found.kind, found.name.as_deref()), found.fingerprint))
-                            } else {
-                                None
-                            };
-                            set_location_tip(&main_weak, tip);
-                            fetch_weather_and_insights(
-                                found.lat,
-                                found.lon,
-                                main_weak,
-                                show_warning,
-                                notify,
-                                found.name,
-                            );
-                        }
-                        None => {
-                            let fingerprint = network_location::current_fingerprint();
-                            let tip = (!network_location::tip_dismissed(&fingerprint))
-                                .then(|| ("无法定位，设置位置后即可显示天气".to_string(), fingerprint));
-                            set_location_tip(&main_weak, tip);
-                            weather::set_unavailable(&err);
-                            let _ = slint::invoke_from_event_loop(move || {
-                                apply_weather_ui(&main_weak);
-                            });
-                        }
-                    }
-                });
+                weather::mark_precise_failed();
+                if weather::current_fallback().is_some() {
+                    maybe_show_approximate_tip(&main_weak);
+                    return;
+                }
+                if weather::location_failure_ready() {
+                    let main_weak = main_weak.clone();
+                    std::thread::spawn(move || show_unlocated(&main_weak, &err));
+                }
             }
         });
     }
@@ -1114,7 +1174,7 @@ impl App {
             let Some((lat, lon)) = weather::background_coordinates(default.as_ref()) else {
                 return;
             };
-            insights::ensure_warnings(lat, lon, move || {
+            insights::ensure_warnings(lat, lon, 0, move || {
                 let _ = slint::invoke_from_event_loop(move || {
                     apply_insights_after_fetch(notify);
                 });
@@ -1133,6 +1193,7 @@ impl App {
             if let Ok(main) = self.ensure_main() {
                 main.set_pinned(true);
                 let _ = main.show();
+                refresh_holidays();
                 self.ensure_weather_for_main(&main);
                 main.set_warning_detail_open(true);
                 #[cfg(target_os = "macos")]
@@ -1424,7 +1485,9 @@ fn set_location_tip(main_weak: &slint::Weak<MainWindow>, tip: Option<(String, Fi
 
 fn location_tip_text(kind: FallbackKind, name: Option<&str>) -> String {
     match (kind, name) {
-        (FallbackKind::Default, Some(name)) => format!("无法精确定位，当前显示默认城市「{name}」的天气"),
+        (FallbackKind::Default, Some(name)) => {
+            format!("无法精确定位，当前显示默认城市「{name}」的天气")
+        }
         _ => "无法精确定位，天气位置可能不准确".to_string(),
     }
 }
@@ -1495,7 +1558,11 @@ fn schedule_location_search(state: &Rc<State>, target: PickerTarget, query: Stri
                                 PickerTarget::Main => items,
                                 PickerTarget::Settings => dedupe_to_cities(items),
                             };
-                            let status = if items.is_empty() { "未找到匹配的地点" } else { "" };
+                            let status = if items.is_empty() {
+                                "未找到匹配的地点"
+                            } else {
+                                ""
+                            };
                             app.apply_location_results(target, items, status);
                         }
                         Err(err) => {
@@ -1509,6 +1576,54 @@ fn schedule_location_search(state: &Rc<State>, target: PickerTarget, query: Stri
     });
 }
 
+fn paint_cached_or_loading(main: &MainWindow, lat: f64, lon: f64, show_warning: bool) {
+    if weather::show_cached_weather(lat, lon) {
+        weather::apply_weather_to_window(main);
+        apply_insights_ui(main, show_warning);
+    } else {
+        weather::set_loading();
+        weather::apply_weather_to_window(main);
+        apply_insights_ui(main, show_warning);
+    }
+}
+
+fn maybe_show_approximate_tip(main_weak: &slint::Weak<MainWindow>) {
+    let Some(fallback) = weather::current_fallback() else {
+        return;
+    };
+    if !fallback.kind.is_approximate() || network_location::tip_dismissed(&fallback.fingerprint) {
+        return;
+    }
+    let text = location_tip_text(fallback.kind, fallback.name.as_deref());
+    set_location_tip(main_weak, Some((text, fallback.fingerprint)));
+}
+
+fn show_unlocated(main_weak: &slint::Weak<MainWindow>, err: &str) {
+    let fingerprint = network_location::current_fingerprint();
+    let tip = (!network_location::tip_dismissed(&fingerprint))
+        .then(|| ("无法定位，设置位置后即可显示天气".to_string(), fingerprint));
+    set_location_tip(main_weak, tip);
+    weather::set_unavailable(err);
+    let main_weak = main_weak.clone();
+    let _ = slint::invoke_from_event_loop(move || {
+        apply_weather_ui(&main_weak);
+    });
+}
+
+/// Reloads statutory holidays when the on-disk file is stale. The tray
+/// process stays up for days, so this has to run on open, not only at startup.
+pub fn refresh_holidays() {
+    holiday::ensure_holiday_data(|| {
+        let _ = slint::invoke_from_event_loop(|| {
+            with_app(|app| {
+                if let Some(main) = app.main_handle() {
+                    refresh_all(&main, &app.state);
+                }
+            });
+        });
+    });
+}
+
 fn fetch_weather_and_insights(
     lat: f64,
     lon: f64,
@@ -1516,27 +1631,38 @@ fn fetch_weather_and_insights(
     show_warning: bool,
     notify: bool,
     city: Option<String>,
+    gen: u64,
 ) {
     let main_weak_weather = main_weak.clone();
-    weather::ensure_weather(lat, lon, city, move || {
+    weather::ensure_weather(lat, lon, city, gen, move || {
         let main_weak_weather = main_weak_weather.clone();
         let _ = slint::invoke_from_event_loop(move || {
+            if !weather::fetch_is_current(gen) {
+                return;
+            }
             apply_weather_ui(&main_weak_weather);
         });
     });
 
     if show_warning {
-        insights::ensure_warnings(lat, lon, move || {
+        insights::ensure_warnings(lat, lon, gen, move || {
             let _ = slint::invoke_from_event_loop(move || {
+                if !weather::fetch_is_current(gen) {
+                    return;
+                }
                 apply_insights_after_fetch(notify);
             });
         });
     } else {
         let _ = main_weak;
-        insights::clear_insights();
-        let _ = slint::invoke_from_event_loop(move || {
-            apply_insights_after_fetch(false);
-        });
+        if weather::fetch_is_current(gen) {
+            insights::clear_insights();
+            let _ = slint::invoke_from_event_loop(move || {
+                if weather::fetch_is_current(gen) {
+                    apply_insights_after_fetch(false);
+                }
+            });
+        }
     }
 }
 

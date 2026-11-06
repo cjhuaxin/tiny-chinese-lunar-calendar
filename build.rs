@@ -99,7 +99,10 @@ fn embed_qweather_credentials() {
     println!("cargo:rustc-env=QWEATHER_KID={kid}");
     println!("cargo:rustc-env=QWEATHER_PROJECT_ID={project_id}");
 
-    if host.is_empty() || kid.is_empty() || project_id.is_empty() || private_key_pem.trim().is_empty()
+    if host.is_empty()
+        || kid.is_empty()
+        || project_id.is_empty()
+        || private_key_pem.trim().is_empty()
     {
         println!(
             "cargo:warning=QWeather JWT credentials missing. \

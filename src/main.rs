@@ -20,8 +20,7 @@ use slint::winit_030::winit;
 use tray_icon::menu::{IconMenuItem, Menu, MenuEvent, NativeIcon, PredefinedMenuItem};
 use tray_icon::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 
-use crate::app::{install_app, with_app, App};
-use crate::services::holiday;
+use crate::app::{install_app, refresh_holidays, with_app, App};
 
 const SETTINGS_MENU_ID: &str = "settings";
 const ABOUT_MENU_ID: &str = "about";
@@ -83,16 +82,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    // Load holiday data; refresh the UI once fresh data arrives from the network.
-    holiday::ensure_holiday_data(|| {
-        let _ = slint::invoke_from_event_loop(|| {
-            with_app(|app| {
-                if let Some(main) = app.main_handle() {
-                    app::refresh_all(&main, &app.state);
-                }
-            });
-        });
-    });
+    // Load holiday data; refresh again whenever the calendar opens if the
+    // cache has gone stale while the tray process kept running.
+    refresh_holidays();
 
     // Tray events can be delivered from outside the Slint event loop; forward
     // them onto the main thread.

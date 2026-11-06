@@ -280,7 +280,12 @@ fn fetch_warnings(lat: f64, lon: f64) -> Result<Vec<Insight>, String> {
 
 /// Loads warnings from cache or network, updates `INSIGHT_STATE`, then runs
 /// `on_refreshed` (may be called from a background thread).
-pub fn ensure_warnings(lat: f64, lon: f64, on_refreshed: impl Fn() + Send + 'static) {
+/// `gen == 0` is a background poll. Any other generation is dropped when a
+/// newer location fix has taken over the popover.
+pub fn ensure_warnings(lat: f64, lon: f64, gen: u64, on_refreshed: impl Fn() + Send + 'static) {
+    if !weather::fetch_is_current(gen) {
+        return;
+    }
     if !weather::qweather_configured() {
         super::set_insights(Vec::new());
         on_refreshed();
@@ -288,20 +293,32 @@ pub fn ensure_warnings(lat: f64, lon: f64, on_refreshed: impl Fn() + Send + 'sta
     }
 
     if let Some(cached) = load_warning_cache(lat, lon) {
+        if !weather::fetch_is_current(gen) {
+            return;
+        }
         super::set_insights(cached);
         on_refreshed();
         return;
     }
 
     std::thread::spawn(move || {
+        if !weather::fetch_is_current(gen) {
+            return;
+        }
         match fetch_warnings(lat, lon) {
             Ok(insights) => {
                 let _ = save_warning_cache(lat, lon, &insights);
+                if !weather::fetch_is_current(gen) {
+                    return;
+                }
                 super::set_insights(insights);
                 on_refreshed();
             }
             Err(err) => {
                 eprintln!("WeatherAlert fetch failed: {err}");
+                if !weather::fetch_is_current(gen) {
+                    return;
+                }
                 // Keep prior in-memory state; only clear if we have nothing.
                 if super::current_insights().is_none() {
                     super::set_insights(Vec::new());

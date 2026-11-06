@@ -2,6 +2,7 @@ use std::fs;
 use std::net::{TcpStream, ToSocketAddrs};
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -146,6 +147,14 @@ fn coords_match(a_lat: f64, a_lon: f64, b_lat: f64, b_lon: f64) -> bool {
     (a_lat - b_lat).abs() <= 0.01 && (a_lon - b_lon).abs() <= 0.01
 }
 
+/// About 3km. CoreLocation is requested at kilometer accuracy, so a tighter
+/// threshold treats GPS jitter as a move and refetches weather for the same place.
+const SAME_PLACE_DEGREES: f64 = 0.03;
+
+fn same_place(a_lat: f64, a_lon: f64, b_lat: f64, b_lon: f64) -> bool {
+    (a_lat - b_lat).abs() <= SAME_PLACE_DEGREES && (a_lon - b_lon).abs() <= SAME_PLACE_DEGREES
+}
+
 fn coord_cache_path() -> Result<PathBuf, String> {
     Ok(app_data_dir()?.join("location_cache.json"))
 }
@@ -253,17 +262,21 @@ fn save_weather_cache(lat: f64, lon: f64, snapshot: &WeatherSnapshot) -> Result<
     fs::write(path, content).map_err(|e| e.to_string())
 }
 
-fn load_forecast_cache(lat: f64, lon: f64) -> Option<Vec<DailyForecast>> {
+fn load_forecast_cache_filtered(lat: f64, lon: f64, honor_ttl: bool) -> Option<Vec<DailyForecast>> {
     let path = forecast_cache_path().ok()?;
     let content = fs::read_to_string(path).ok()?;
     let cache: ForecastCacheFile = serde_json::from_str(&content).ok()?;
     if !coords_match(cache.lat, cache.lon, lat, lon) {
         return None;
     }
-    if now_secs().saturating_sub(cache.fetched_at) > FORECAST_TTL_SECS {
+    if honor_ttl && now_secs().saturating_sub(cache.fetched_at) > FORECAST_TTL_SECS {
         return None;
     }
     forecast_for_current_day(cache.days)
+}
+
+fn load_forecast_cache(lat: f64, lon: f64) -> Option<Vec<DailyForecast>> {
+    load_forecast_cache_filtered(lat, lon, true)
 }
 
 fn save_forecast_cache(lat: f64, lon: f64, days: &[DailyForecast]) -> Result<(), String> {
@@ -395,6 +408,22 @@ fn curl_get_once(url: &str, token: &str, proxy: Option<&str>) -> Result<Vec<u8>,
                 format!(" ({stderr})")
             }
         ))
+    }
+}
+
+/// Public JSON fetch: direct first, then the local HTTP proxy when one is up.
+/// Holiday data uses this so a blocked CDN can still be reached through Clash.
+pub(crate) fn fetch_bytes(url: &str) -> Result<Vec<u8>, String> {
+    match curl_get_plain_once(url, None) {
+        Ok(body) => Ok(body),
+        Err(direct_err) => {
+            if !local_proxy_available() {
+                return Err(direct_err);
+            }
+            let proxy = format!("http://{PROXY_HOST}:{PROXY_PORT}");
+            curl_get_plain_once(url, Some(&proxy))
+                .map_err(|proxy_err| format!("{direct_err}; proxy: {proxy_err}"))
+        }
     }
 }
 
@@ -972,16 +1001,258 @@ fn with_city(mut snapshot: WeatherSnapshot, city: Option<&str>) -> WeatherSnapsh
     snapshot
 }
 
+fn load_any_weather(lat: f64, lon: f64) -> Option<WeatherSnapshot> {
+    load_weather_cache(lat, lon).or_else(|| load_stale_weather_cache(lat, lon))
+}
+
+/// Paints a disk snapshot for `lat`/`lon` into memory, including an expired
+/// one. Used so the badge can show the last place immediately.
+pub fn show_cached_weather(lat: f64, lon: f64) -> bool {
+    let Some(snapshot) = load_any_weather(lat, lon) else {
+        return false;
+    };
+    if !snapshot.available {
+        return false;
+    }
+    set_memory(snapshot);
+    if let Some(days) = load_forecast_cache_filtered(lat, lon, false) {
+        set_forecast_memory(days);
+    }
+    true
+}
+
+/// Last stored coordinates, ignoring TTL, and their cached snapshot.
+pub fn show_last_cached_weather() -> bool {
+    let Some(cache) = load_coord_cache() else {
+        return false;
+    };
+    show_cached_weather(cache.lat, cache.lon)
+}
+
+fn weather_is_fresh(lat: f64, lon: f64) -> bool {
+    load_weather_cache(lat, lon).is_some()
+}
+
+/// Which fix is allowed to paint weather for the current popover open.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FixClass {
+    None,
+    Provisional,
+    Precise,
+    Manual,
+}
+
+#[derive(Debug, Clone)]
+struct StoredFallback {
+    kind: FallbackKind,
+    name: Option<String>,
+    fingerprint: Fingerprint,
+}
+
+#[derive(Debug, Clone)]
+struct LocationPass {
+    class: FixClass,
+    lat: f64,
+    lon: f64,
+    fetch_gen: u64,
+    precise_failed: bool,
+    fallback_finished: bool,
+    /// A stale snapshot is already on screen; don't replace it with an error
+    /// when both precise location and the fallback fail.
+    primed: bool,
+    fallback: Option<StoredFallback>,
+}
+
+impl Default for LocationPass {
+    fn default() -> Self {
+        Self {
+            class: FixClass::None,
+            lat: 0.0,
+            lon: 0.0,
+            fetch_gen: 0,
+            precise_failed: false,
+            fallback_finished: false,
+            primed: false,
+            fallback: None,
+        }
+    }
+}
+
+/// A weather fetch the caller should start. `fetch` is false when a later
+/// or more authoritative fix already covers this place.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WeatherRequest {
+    pub gen: u64,
+    pub fetch: bool,
+}
+
+impl LocationPass {
+    fn bump(&mut self) -> WeatherRequest {
+        let gen = NEXT_FETCH_GEN.fetch_add(1, Ordering::SeqCst);
+        self.fetch_gen = gen;
+        WeatherRequest { gen, fetch: true }
+    }
+
+    fn skip(&self) -> WeatherRequest {
+        WeatherRequest {
+            gen: self.fetch_gen,
+            fetch: false,
+        }
+    }
+
+    fn accept_provisional(&mut self, loc: &FallbackLocation) -> WeatherRequest {
+        if matches!(self.class, FixClass::Precise | FixClass::Manual) {
+            return self.skip();
+        }
+        let stored = StoredFallback {
+            kind: loc.kind,
+            name: loc.name.clone(),
+            fingerprint: loc.fingerprint.clone(),
+        };
+        if self.class == FixClass::Provisional && same_place(self.lat, self.lon, loc.lat, loc.lon) {
+            self.fallback = Some(stored);
+            return self.skip();
+        }
+        self.class = FixClass::Provisional;
+        self.lat = loc.lat;
+        self.lon = loc.lon;
+        self.fallback = Some(stored);
+        self.bump()
+    }
+
+    fn accept_precise(&mut self, lat: f64, lon: f64, weather_fresh: bool) -> WeatherRequest {
+        if self.class == FixClass::Manual {
+            return self.skip();
+        }
+        if self.class != FixClass::None && same_place(self.lat, self.lon, lat, lon) {
+            self.class = FixClass::Precise;
+            if self.fetch_gen > 0 || weather_fresh {
+                return self.skip();
+            }
+            return self.bump();
+        }
+        self.class = FixClass::Precise;
+        self.lat = lat;
+        self.lon = lon;
+        self.bump()
+    }
+
+    fn accept_manual(&mut self, lat: f64, lon: f64) -> WeatherRequest {
+        self.class = FixClass::Manual;
+        self.lat = lat;
+        self.lon = lon;
+        self.bump()
+    }
+}
+
+/// Monotonic across popover opens so a fetch from the previous open cannot
+/// pass the generation check after the counter resets.
+static NEXT_FETCH_GEN: AtomicU64 = AtomicU64::new(1);
+static LOCATION_PASS: Lazy<Mutex<LocationPass>> = Lazy::new(|| Mutex::new(LocationPass::default()));
+
+fn with_pass<T>(f: impl FnOnce(&mut LocationPass) -> T) -> T {
+    let mut guard = LOCATION_PASS
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    f(&mut guard)
+}
+
+/// Drops in-flight fetches from the previous open.
+pub fn begin_location_pass() {
+    with_pass(|pass| *pass = LocationPass::default());
+}
+
+pub fn note_cached_weather_shown() {
+    with_pass(|pass| pass.primed = true);
+}
+
+pub fn accept_provisional(loc: &FallbackLocation) -> WeatherRequest {
+    with_pass(|pass| pass.accept_provisional(loc))
+}
+
+pub fn accept_precise(lat: f64, lon: f64) -> WeatherRequest {
+    let fresh = weather_is_fresh(lat, lon);
+    with_pass(|pass| pass.accept_precise(lat, lon, fresh))
+}
+
+/// A fresh CoreLocation cache: one fetch, and later fallbacks must not replace it.
+pub fn begin_precise_pass(lat: f64, lon: f64) -> WeatherRequest {
+    with_pass(|pass| {
+        *pass = LocationPass::default();
+        pass.accept_precise(lat, lon, false)
+    })
+}
+
+pub fn accept_manual(lat: f64, lon: f64) -> WeatherRequest {
+    with_pass(|pass| pass.accept_manual(lat, lon))
+}
+
+pub fn mark_precise_failed() {
+    with_pass(|pass| pass.precise_failed = true);
+}
+
+pub fn mark_fallback_finished() {
+    with_pass(|pass| pass.fallback_finished = true);
+}
+
+pub fn precise_has_failed() -> bool {
+    with_pass(|pass| pass.precise_failed)
+}
+
+/// Both sources failed and nothing is on screen.
+pub fn location_failure_ready() -> bool {
+    with_pass(|pass| {
+        pass.precise_failed
+            && pass.fallback_finished
+            && pass.class == FixClass::None
+            && !pass.primed
+    })
+}
+
+/// Fallback currently on screen, for the "cannot locate precisely" tip.
+pub struct ShownFallback {
+    pub kind: FallbackKind,
+    pub name: Option<String>,
+    pub fingerprint: Fingerprint,
+}
+
+pub fn current_fallback() -> Option<ShownFallback> {
+    with_pass(|pass| {
+        pass.fallback.as_ref().map(|fallback| ShownFallback {
+            kind: fallback.kind,
+            name: fallback.name.clone(),
+            fingerprint: fallback.fingerprint.clone(),
+        })
+    })
+}
+
+/// `gen == 0` is the background poll, which is not tied to a popover open.
+pub fn fetch_is_current(gen: u64) -> bool {
+    if gen == 0 {
+        return true;
+    }
+    with_pass(|pass| pass.fetch_gen == gen)
+}
+
 /// Loads weather from cache or network. `on_refreshed` runs on a background
 /// thread after a successful network fetch. `city` overrides the
 /// reverse-geocoded name (for hand-picked or default locations).
+/// `gen` comes from [`WeatherRequest`]; a newer fix makes this fetch a no-op.
 pub fn ensure_weather(
     lat: f64,
     lon: f64,
     city: Option<String>,
+    gen: u64,
     on_refreshed: impl Fn() + Send + 'static,
 ) {
+    if !fetch_is_current(gen) {
+        return;
+    }
+
     if let Some(cached) = load_weather_cache(lat, lon) {
+        if !fetch_is_current(gen) {
+            return;
+        }
         set_memory(with_city(cached, city.as_deref()));
         if let Some(days) = load_forecast_cache(lat, lon) {
             set_forecast_memory(days);
@@ -990,8 +1261,13 @@ pub fn ensure_weather(
             // Current conditions are fresh but the 30-day forecast expired;
             // refresh just the forecast off the main thread.
             std::thread::spawn(move || {
+                if !fetch_is_current(gen) {
+                    return;
+                }
                 let _ = ensure_forecast(lat, lon);
-                on_refreshed();
+                if fetch_is_current(gen) {
+                    on_refreshed();
+                }
             });
         } else {
             on_refreshed();
@@ -999,34 +1275,40 @@ pub fn ensure_weather(
         return;
     }
 
-    if let Some(mem) = current_weather() {
-        if mem.available && snapshot_has_daily_range(&mem) && daily_forecasts().is_some() {
-            on_refreshed();
-            return;
-        }
-    }
-
     if !qweather_configured() {
-        set_memory(unavailable_snapshot(""));
-        on_refreshed();
+        if fetch_is_current(gen) {
+            set_memory(unavailable_snapshot(""));
+            on_refreshed();
+        }
         return;
     }
 
-    std::thread::spawn(move || match fetch_weather_now(lat, lon) {
-        Ok(snapshot) => {
-            let snapshot = with_city(snapshot, city.as_deref());
-            let _ = save_weather_cache(lat, lon, &snapshot);
-            set_memory(snapshot);
-            on_refreshed();
+    std::thread::spawn(move || {
+        if !fetch_is_current(gen) {
+            return;
         }
-        Err(err) => {
-            eprintln!("QWeather fetch failed: {err}");
-            if let Some(cached) = load_stale_weather_cache(lat, lon) {
-                set_memory(with_city(cached, city.as_deref()));
+        match fetch_weather_now(lat, lon) {
+            Ok(snapshot) => {
+                let snapshot = with_city(snapshot, city.as_deref());
+                let _ = save_weather_cache(lat, lon, &snapshot);
+                if !fetch_is_current(gen) {
+                    return;
+                }
+                set_memory(snapshot);
                 on_refreshed();
-            } else {
-                set_memory(unavailable_snapshot(&err));
-                on_refreshed();
+            }
+            Err(err) => {
+                eprintln!("QWeather fetch failed: {err}");
+                if !fetch_is_current(gen) {
+                    return;
+                }
+                if let Some(cached) = load_stale_weather_cache(lat, lon) {
+                    set_memory(with_city(cached, city.as_deref()));
+                    on_refreshed();
+                } else {
+                    set_memory(unavailable_snapshot(&err));
+                    on_refreshed();
+                }
             }
         }
     });
@@ -1274,6 +1556,58 @@ mod tests {
     fn percent_encodes_utf8_queries() {
         assert_eq!(percent_encode("南山"), "%E5%8D%97%E5%B1%B1");
         assert_eq!(percent_encode("shen zhen"), "shen%20zhen");
+    }
+
+    fn fallback_at(lat: f64, lon: f64) -> FallbackLocation {
+        FallbackLocation {
+            lat,
+            lon,
+            kind: FallbackKind::Network,
+            name: None,
+            fingerprint: Fingerprint::default(),
+        }
+    }
+
+    #[test]
+    fn same_neighborhood_counts_as_one_place() {
+        assert!(same_place(22.53, 113.93, 22.54, 113.94));
+        assert!(!same_place(22.53, 113.93, 22.62, 114.05));
+    }
+
+    #[test]
+    fn precise_fix_same_place_does_not_start_a_second_fetch() {
+        let mut pass = LocationPass::default();
+        let first = pass.accept_provisional(&fallback_at(22.53, 113.93));
+        assert!(first.fetch);
+        let second = pass.accept_precise(22.54, 113.94, true);
+        assert!(!second.fetch);
+        assert_eq!(pass.fetch_gen, first.gen);
+    }
+
+    #[test]
+    fn precise_fix_elsewhere_replaces_the_provisional_fetch() {
+        let mut pass = LocationPass::default();
+        let first = pass.accept_provisional(&fallback_at(22.53, 113.93));
+        let second = pass.accept_precise(31.23, 121.47, true);
+        assert!(second.fetch);
+        assert_ne!(first.gen, second.gen);
+        assert!(!pass.accept_provisional(&fallback_at(22.53, 113.93)).fetch);
+    }
+
+    #[test]
+    fn manual_pick_is_not_replaced_by_a_later_gps_fix() {
+        let mut pass = LocationPass::default();
+        let pick = pass.accept_manual(22.53, 113.93);
+        assert!(pick.fetch);
+        assert!(!pass.accept_precise(31.23, 121.47, false).fetch);
+        assert_eq!(pass.fetch_gen, pick.gen);
+    }
+
+    #[test]
+    fn stale_precise_fix_still_fetches_when_nothing_else_has() {
+        let mut pass = LocationPass::default();
+        let gps = pass.accept_precise(22.53, 113.93, false);
+        assert!(gps.fetch);
     }
 }
 

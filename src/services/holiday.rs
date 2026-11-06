@@ -1,22 +1,35 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
-use std::process::Command;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use chrono::{Datelike, NaiveDate};
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use tyme4rs::tyme::holiday::LegalHoliday;
 
+use crate::services::weather;
 use crate::settings::app_data_dir;
 
-const API_URLS: [&str; 2] = [
+/// `cdn.jsdelivr.net` is often reset from China. fastly/gcore are the same
+/// package, and unpkg is the last direct mirror. A saved URL is still tried
+/// first; the rest cover the case where that host is blocked.
+const API_URLS: [&str; 4] = [
+    "https://fastly.jsdelivr.net/npm/chinese-days/dist/chinese-days.json",
+    "https://gcore.jsdelivr.net/npm/chinese-days/dist/chinese-days.json",
     "https://cdn.jsdelivr.net/npm/chinese-days/dist/chinese-days.json",
     "https://unpkg.com/chinese-days/dist/chinese-days.json",
 ];
 
 const UPDATE_INTERVAL_SECS: u64 = 24 * 60 * 60;
+/// In Nov/Dec the next year's State Council schedule may land while a
+/// same-day cache is still inside the normal TTL. Recheck hourly until
+/// January 1 of that year shows up.
+const UPCOMING_YEAR_RETRY_SECS: u64 = 60 * 60;
+
+static REFRESHING: AtomicBool = AtomicBool::new(false);
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct HolidayCacheFile {
@@ -73,6 +86,19 @@ fn get_memory() -> Option<Arc<HolidayData>> {
         .and_then(|guard| guard.as_ref().map(Arc::clone))
 }
 
+fn parse_holiday_json(body: &[u8]) -> Result<HolidayData, String> {
+    let json: serde_json::Value = serde_json::from_slice(body).map_err(|e| e.to_string())?;
+    let holidays = json
+        .get("holidays")
+        .and_then(|value| serde_json::from_value(value.clone()).ok())
+        .ok_or_else(|| "missing holidays".to_string())?;
+    let workdays = json
+        .get("workdays")
+        .and_then(|value| serde_json::from_value(value.clone()).ok())
+        .ok_or_else(|| "missing workdays".to_string())?;
+    Ok(HolidayData { holidays, workdays })
+}
+
 fn fetch_from_api(last_url: Option<&str>) -> Result<(HolidayData, String), String> {
     let mut urls: Vec<&str> = Vec::new();
     if let Some(url) = last_url {
@@ -86,69 +112,85 @@ fn fetch_from_api(last_url: Option<&str>) -> Result<(HolidayData, String), Strin
         urls.extend(API_URLS.iter().copied());
     }
 
+    let mut last_err = String::from("All API sources failed");
     for url in urls {
-        let output = Command::new("/usr/bin/curl")
-            .args([
-                "-fsSL",
-                "--max-time",
-                "10",
-                "-H",
-                "Accept: application/json",
-                url,
-            ])
-            .output();
-
-        match output {
-            Ok(response) if response.status.success() => {
-                let json: serde_json::Value =
-                    serde_json::from_slice(&response.stdout).map_err(|e| e.to_string())?;
-                if let (Some(holidays), Some(workdays)) = (
-                    json.get("holidays")
-                        .and_then(|value| serde_json::from_value(value.clone()).ok()),
-                    json.get("workdays")
-                        .and_then(|value| serde_json::from_value(value.clone()).ok()),
-                ) {
-                    let data = HolidayData { holidays, workdays };
-                    return Ok((data, url.to_string()));
-                }
-            }
-            Ok(_) | Err(_) => continue,
+        match weather::fetch_bytes(url) {
+            Ok(body) => match parse_holiday_json(&body) {
+                Ok(data) => return Ok((data, url.to_string())),
+                Err(err) => last_err = format!("{url}: {err}"),
+            },
+            Err(err) => last_err = format!("{url}: {err}"),
         }
     }
 
-    Err("All API sources failed".to_string())
+    Err(last_err)
 }
 
-/// Loads holiday data into memory from cache, refreshing from the network in
-/// the background when the cache is stale or missing. `on_refreshed` is called
-/// from a background thread after fresh data has been fetched.
-pub fn ensure_holiday_data(on_refreshed: impl Fn() + Send + 'static) {
+fn upcoming_year_marker(today: NaiveDate) -> String {
+    format!("{}-01-01", today.year() + 1)
+}
+
+/// True when the on-disk cache should be fetched again.
+fn needs_refresh(cache: &HolidayCacheFile, now: u64, today: NaiveDate) -> bool {
+    let Some(updated) = cache.last_update else {
+        return true;
+    };
+    let Some(data) = cache.data.as_ref() else {
+        return true;
+    };
+    let age = now.saturating_sub(updated);
+    if age > UPDATE_INTERVAL_SECS {
+        return true;
+    }
+    // The next year's arrangement is published around November.
+    if today.month() >= 11 {
+        let marker = upcoming_year_marker(today);
+        if !data.holidays.contains_key(&marker) && age > UPCOMING_YEAR_RETRY_SECS {
+            return true;
+        }
+    }
+    false
+}
+
+fn load_memory_from_cache(cache: &HolidayCacheFile) {
     if get_memory().is_some() {
         return;
     }
-
-    let cache = load_cache_file().unwrap_or_default();
-    if let Some(data) = cache.data {
+    if let Some(data) = cache.data.clone() {
         set_memory(data);
-        let stale = cache
-            .last_update
-            .map(|t| now_secs().saturating_sub(t) > UPDATE_INTERVAL_SECS)
-            .unwrap_or(true);
-        if stale {
-            std::thread::spawn(move || {
-                if refresh_holiday_data().is_ok() {
-                    on_refreshed();
-                }
-            });
-        }
+    }
+}
+
+fn spawn_refresh(on_refreshed: impl Fn() + Send + 'static) {
+    if REFRESHING.swap(true, Ordering::SeqCst) {
         return;
     }
-
     std::thread::spawn(move || {
-        if refresh_holiday_data().is_ok() {
+        let refreshed = match refresh_holiday_data() {
+            Ok(()) => true,
+            Err(err) => {
+                eprintln!("holiday refresh failed: {err}");
+                false
+            }
+        };
+        REFRESHING.store(false, Ordering::SeqCst);
+        if refreshed {
             on_refreshed();
         }
     });
+}
+
+/// Loads holiday data into memory from cache, refreshing from the network in
+/// the background when the cache is stale or missing. Safe to call on every
+/// calendar open: a fresh cache returns immediately, and a long-running tray
+/// process does not keep serving last month's file.
+/// `on_refreshed` is called from a background thread after a successful fetch.
+pub fn ensure_holiday_data(on_refreshed: impl Fn() + Send + 'static) {
+    let cache = load_cache_file().unwrap_or_default();
+    load_memory_from_cache(&cache);
+    if needs_refresh(&cache, now_secs(), chrono::Local::now().date_naive()) {
+        spawn_refresh(on_refreshed);
+    }
 }
 
 pub fn refresh_holiday_data() -> Result<(), String> {
@@ -186,4 +228,70 @@ pub fn workday_tag(year: i32, month: u32, day: u32) -> Option<String> {
     }
 
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_chinese_days_maps() {
+        let body =
+            r#"{"holidays":{"2027-01-01":"元旦"},"workdays":{"2027-01-31":"春节"}}"#.as_bytes();
+        let data = parse_holiday_json(body).unwrap();
+        assert!(data.holidays.contains_key("2027-01-01"));
+        assert!(data.workdays.contains_key("2027-01-31"));
+        assert!(parse_holiday_json(br#"{"holidays":{}}"#).is_err());
+    }
+
+    #[test]
+    fn refresh_when_the_next_year_is_missing_in_november() {
+        let now = 1_000_000 + 2 * 60 * 60;
+        let today = NaiveDate::from_ymd_opt(2026, 11, 6).unwrap();
+        let cache = HolidayCacheFile {
+            data: Some(HolidayData {
+                holidays: HashMap::from([("2026-01-01".to_string(), "元旦".to_string())]),
+                workdays: HashMap::new(),
+            }),
+            etag: None,
+            last_update: Some(1_000_000),
+            last_url: None,
+        };
+        assert!(needs_refresh(&cache, now, today));
+        // Checked recently; wait before hitting the network again.
+        assert!(!needs_refresh(&cache, 1_000_000 + 10 * 60, today));
+        // October is before the schedule is published.
+        let october = NaiveDate::from_ymd_opt(2026, 10, 15).unwrap();
+        assert!(!needs_refresh(&cache, now, october));
+    }
+
+    #[test]
+    fn fresh_cache_that_includes_next_year_is_kept() {
+        let today = NaiveDate::from_ymd_opt(2026, 11, 6).unwrap();
+        let cache = HolidayCacheFile {
+            data: Some(HolidayData {
+                holidays: HashMap::from([("2027-01-01".to_string(), "元旦".to_string())]),
+                workdays: HashMap::new(),
+            }),
+            etag: None,
+            last_update: Some(1_000_000),
+            last_url: None,
+        };
+        assert!(!needs_refresh(&cache, 1_000_000 + 2 * 60 * 60, today));
+        assert!(needs_refresh(
+            &cache,
+            1_000_000 + UPDATE_INTERVAL_SECS + 1,
+            today
+        ));
+    }
+
+    #[test]
+    fn missing_cache_always_refreshes() {
+        let today = NaiveDate::from_ymd_opt(2026, 6, 1).unwrap();
+        assert!(needs_refresh(
+            &HolidayCacheFile::default(),
+            1_000_000,
+            today
+        ));
+    }
 }
