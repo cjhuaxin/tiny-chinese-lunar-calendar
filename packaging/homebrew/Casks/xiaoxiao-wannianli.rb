@@ -1,6 +1,6 @@
 cask "xiaoxiao-wannianli" do
-  version "0.3.15"
-  sha256 "b06ac584d0c485cc797e6a54bc3e3be8f256386edbfadca8032fe2d8f8822232"
+  version "0.3.16"
+  sha256 "1729cb02ae85bd858ac97c394308a3ee28943de1950198d12d49170e75305c02"
 
   url "https://github.com/cjhuaxin/tiny-chinese-lunar-calendar/releases/download/v#{version}/xiaoxiao-wannianli-#{version}.dmg"
   name "Tiny Chinese Lunar Calendar"
